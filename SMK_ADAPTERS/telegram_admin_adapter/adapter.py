@@ -8,6 +8,7 @@ from SMK_ADAPTERS.common.http_client import SmcApiClient
 from SMK_ADAPTERS.common.models import IncomingMessage, QueueMessage
 from SMK_ADAPTERS.common.parsers import BackendResponseParser
 from SMK_ADAPTERS.common.rabbit import RabbitMqBus
+from SMK_ADAPTERS.telegram_admin_adapter.async_runtime import TelegramAsyncRuntime
 from SMK_ADAPTERS.telegram_admin_adapter.client import TelegramApiError, TelegramBotClient
 from SMK_ADAPTERS.telegram_admin_adapter.long_poll import NewLongPoll
 from SMK_ADAPTERS.telegram_admin_adapter.settings import loadSettings
@@ -19,6 +20,7 @@ ADAPTER_NAME = "telegram_admin"
 apiClient: SmcApiClient | None = None
 messageParser: BackendResponseParser | None = None
 telegramClient: TelegramBotClient | None = None
+telegramRuntime: TelegramAsyncRuntime | None = None
 publisherBus: RabbitMqBus | None = None
 consumerBus: RabbitMqBus | None = None
 longPoll: NewLongPoll | None = None
@@ -28,6 +30,7 @@ def getStarted():
     global apiClient
     global messageParser
     global telegramClient
+    global telegramRuntime
     global publisherBus
     global consumerBus
     global longPoll
@@ -35,7 +38,13 @@ def getStarted():
     settings = loadSettings()
     token = loadSecretFile(settings.telegram.token_file)
 
-    telegramClient = TelegramBotClient(token=token, timeout_seconds=settings.common.api.timeout_seconds)
+    telegramRuntime = TelegramAsyncRuntime()
+    telegramRuntime.start()
+    telegramClient = TelegramBotClient(
+        token=token,
+        runtime=telegramRuntime,
+        timeout_seconds=settings.common.api.timeout_seconds,
+    )
     apiClient = SmcApiClient(settings.common.api)
     messageParser = BackendResponseParser()
 

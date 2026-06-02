@@ -1,9 +1,12 @@
+import asyncio
 import logging
-import time
 from collections.abc import Callable
 
+from aiogram import Dispatcher
+from aiogram.types import CallbackQuery, Message
+
 from SMK_ADAPTERS.common.models import IncomingMessage
-from SMK_ADAPTERS.telegram_admin_adapter.client import TelegramBotClient
+from SMK_ADAPTERS.telegram_admin_adapter.client import TelegramApiError, TelegramBotClient
 
 
 LOGGER = logging.getLogger(__name__)
@@ -17,78 +20,97 @@ class NewLongPoll:
         poll_timeout_seconds: int,
         retry_delay_seconds: float,
     ) -> None:
-        self._client = client
-        self._adapter_name = adapter_name
-        self._poll_timeout_seconds = poll_timeout_seconds
-        self._retry_delay_seconds = retry_delay_seconds
-        self._offset: int | None = None
+        self.client = client
+        self.adapterName = adapter_name
+        self.pollTimeoutSeconds = poll_timeout_seconds
+        self.retryDelaySeconds = retry_delay_seconds
+        self.dispatcher = Dispatcher()
 
     def listen(self, handler: Callable[[IncomingMessage], None]) -> None:
+        self.registerHandlers(handler)
+        self.client.runtime.run(self.listenAsync())
+
+    async def listenAsync(self) -> None:
         while True:
             try:
-                for update in self._client.getUpdates(self._offset, self._poll_timeout_seconds):
-                    message = self.toMessage(update)
-                    if message is not None:
-                        handler(message)
-                    self._offset = int(update["update_id"]) + 1
+                await self.dispatcher.start_polling(
+                    self.client.bot,
+                    polling_timeout=self.pollTimeoutSeconds,
+                    allowed_updates=["message", "callback_query"],
+                )
             except RuntimeError as exc:
-                LOGGER.warning("%s. Следующая попытка через %s сек.", exc, self._retry_delay_seconds)
-                time.sleep(self._retry_delay_seconds)
+                LOGGER.warning("%s. Следующая попытка через %s сек.", exc, self.retryDelaySeconds)
+                await asyncio.sleep(self.retryDelaySeconds)
             except Exception:
-                LOGGER.exception("Итерация долгого опроса Telegram завершилась ошибкой")
-                time.sleep(self._retry_delay_seconds)
+                LOGGER.exception("Долгий опрос Telegram завершился ошибкой")
+                await asyncio.sleep(self.retryDelaySeconds)
 
-    def toMessage(self, update: dict) -> IncomingMessage | None:
-        callback_query = update.get("callback_query")
-        if callback_query:
-            return self.callbackToMessage(update, callback_query)
+    def registerHandlers(self, handler: Callable[[IncomingMessage], None]) -> None:
+        @self.dispatcher.message()
+        async def onMessage(message: Message) -> None:
+            incomingMessage = self.messageToIncoming(message)
+            if incomingMessage is None:
+                return
 
-        message = update.get("message") or {}
-        text = message.get("text")
-        chat = message.get("chat") or {}
-        chat_id = chat.get("id")
+            await self.callHandler(handler, incomingMessage)
 
-        if text is None or chat_id is None:
+        @self.dispatcher.callback_query()
+        async def onCallback(callback_query: CallbackQuery) -> None:
+            incomingMessage = self.callbackToIncoming(callback_query)
+            if incomingMessage is None:
+                return
+
+            try:
+                await self.client.answerCallbackQueryAsync(callback_query.id)
+            except TelegramApiError:
+                LOGGER.exception("Telegram не подтвердил callback query")
+
+            await self.callHandler(handler, incomingMessage)
+
+    async def callHandler(self, handler: Callable[[IncomingMessage], None], message: IncomingMessage) -> None:
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, handler, message)
+
+    def messageToIncoming(self, message: Message) -> IncomingMessage | None:
+        if message.text is None or message.chat.id is None:
             return None
 
         return IncomingMessage(
-            adapter=self._adapter_name,
+            adapter=self.adapterName,
             channel="telegram",
-            sender_id=str(chat_id),
-            text=str(text),
-            external_message_id=str(message.get("message_id")) if message.get("message_id") is not None else None,
+            sender_id=str(message.chat.id),
+            text=message.text,
+            external_message_id=str(message.message_id),
             metadata={
                 "telegram": {
-                    "updateId": update.get("update_id"),
-                    "chat": chat,
-                    "from": message.get("from"),
+                    "messageId": message.message_id,
+                    "chat": message.chat.model_dump(mode="json"),
+                    "from": message.from_user.model_dump(mode="json") if message.from_user else None,
                 }
             },
         )
 
-    def callbackToMessage(self, update: dict, callback_query: dict) -> IncomingMessage | None:
-        data = callback_query.get("data")
-        message = callback_query.get("message") or {}
-        chat = message.get("chat") or {}
-        chat_id = chat.get("id")
-
-        if data is None or chat_id is None:
+    def callbackToIncoming(self, callback_query: CallbackQuery) -> IncomingMessage | None:
+        if callback_query.data is None or callback_query.message is None:
             return None
 
-        callback_query_id = callback_query.get("id")
-        if callback_query_id is not None:
-            self._client.answerCallbackQuery(str(callback_query_id))
+        message = callback_query.message
+        chat = getattr(message, "chat", None)
+        if chat is None:
+            return None
 
         return IncomingMessage(
-            adapter=self._adapter_name,
+            adapter=self.adapterName,
             channel="telegram",
-            sender_id=str(chat_id),
-            text=str(data),
-            external_message_id=str(callback_query_id) if callback_query_id is not None else None,
+            sender_id=str(chat.id),
+            text=callback_query.data,
+            external_message_id=callback_query.id,
             metadata={
                 "telegram": {
-                    "updateId": update.get("update_id"),
-                    "callbackQuery": callback_query,
+                    "callbackQueryId": callback_query.id,
+                    "callbackData": callback_query.data,
+                    "chat": chat.model_dump(mode="json"),
+                    "from": callback_query.from_user.model_dump(mode="json"),
                 }
             },
         )
