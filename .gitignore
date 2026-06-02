@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+python/
+
+.env
+*.env
+
+SMK_ADAPTERS/**/config/secrets/*
+!SMK_ADAPTERS/**/config/secrets/.gitkeep
