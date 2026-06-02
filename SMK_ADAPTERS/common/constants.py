@@ -1,7 +1,9 @@
 ADMIN_QUEUE_NAME = "smc_tg_admin_panel"
 DEFAULT_ADMIN_ENDPOINT = "/api/v1/admin"
-
-KEYBOARD_BUTTON_TYPE_LINK = "LINK"
+REPLY_KEYBOARD_HELP_TEXT = (
+    "Сделать выбор можно либо нажав на одну из кнопок выше, либо введите текст вручную.\n"
+    "Для возвращения в главное меню нажмите \"К боту\""
+)
 
 TELEGRAM_FIELD_REPLY_MARKUP = "reply_markup"
 TELEGRAM_FIELD_INLINE_KEYBOARD = "inline_keyboard"

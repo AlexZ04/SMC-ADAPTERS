@@ -5,7 +5,6 @@ from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 
 from SMK_ADAPTERS.common.constants import (
-    KEYBOARD_BUTTON_TYPE_LINK,
     TELEGRAM_BUTTON_COLOR_TO_STYLE,
     TELEGRAM_FIELD_CALLBACK_DATA,
     TELEGRAM_FIELD_INLINE_KEYBOARD,
@@ -83,7 +82,7 @@ class TelegramBotClient:
     def makeInlineButton(self, element: KeyboardElement) -> InlineKeyboardButton:
         button = self.makeButtonData(element)
 
-        if element.type == KEYBOARD_BUTTON_TYPE_LINK and element.link:
+        if element.link:
             button[TELEGRAM_FIELD_URL] = element.link
         else:
             button[TELEGRAM_FIELD_CALLBACK_DATA] = element.text

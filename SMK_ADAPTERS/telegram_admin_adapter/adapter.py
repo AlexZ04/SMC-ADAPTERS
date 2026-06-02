@@ -3,7 +3,7 @@ import threading
 import time
 
 from SMK_ADAPTERS.common.config import loadSecretFile
-from SMK_ADAPTERS.common.constants import ADMIN_QUEUE_NAME
+from SMK_ADAPTERS.common.constants import ADMIN_QUEUE_NAME, REPLY_KEYBOARD_HELP_TEXT
 from SMK_ADAPTERS.common.http_client import SmcApiClient
 from SMK_ADAPTERS.common.models import IncomingMessage, QueueMessage
 from SMK_ADAPTERS.common.parsers import BackendResponseParser
@@ -92,17 +92,55 @@ def handleQueueMessage(payload: dict):
         return
 
     try:
-        telegramClient.sendMessage(
-            chat_id=message.recipient_id,
-            text=message.text,
-            inline_elements=message.inline_elements,
-            reply_elements=message.reply_elements,
-        )
+        sendQueueMessageToTelegram(message)
     except TelegramApiError as exc:
         if exc.status_code == 400:
             LOGGER.error("Telegram отклонил сообщение без возможности повтора: %s", exc)
             return
         raise
+
+
+def sendQueueMessageToTelegram(message: QueueMessage):
+    if telegramClient is None:
+        raise RuntimeError("Адаптер не был запущен через getStarted")
+
+    hasInlineKeyboard = bool(message.inline_elements)
+    hasReplyKeyboard = bool(message.reply_elements)
+    previewMessages = list(message.preview_messages)
+
+    if hasInlineKeyboard and hasReplyKeyboard:
+        sendPreviewMessages(message.recipient_id, previewMessages)
+        telegramClient.sendMessage(
+            chat_id=message.recipient_id,
+            text=message.text,
+            inline_elements=message.inline_elements,
+        )
+        telegramClient.sendMessage(
+            chat_id=message.recipient_id,
+            text=REPLY_KEYBOARD_HELP_TEXT,
+            reply_elements=message.reply_elements,
+        )
+        return
+
+    sendPreviewMessages(message.recipient_id, previewMessages)
+
+    telegramClient.sendMessage(
+        chat_id=message.recipient_id,
+        text=message.text,
+        inline_elements=message.inline_elements,
+        reply_elements=message.reply_elements,
+    )
+
+
+def sendPreviewMessages(recipientId: str, previewMessages: list[str]):
+    if telegramClient is None:
+        raise RuntimeError("Адаптер не был запущен через getStarted")
+
+    for previewMessage in previewMessages:
+        telegramClient.sendMessage(
+            chat_id=recipientId,
+            text=previewMessage,
+        )
 
 
 def startRabbitListening():

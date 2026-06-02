@@ -53,6 +53,7 @@ class IncomingMessage:
 class BackendResponse:
     recipient_id: str | None
     text: str
+    preview_messages: list[str] = field(default_factory=list)
     inline_elements: list[list[KeyboardElement]] = field(default_factory=list)
     reply_elements: list[list[KeyboardElement]] = field(default_factory=list)
     raw_payload: dict[str, Any] = field(default_factory=dict)
@@ -75,12 +76,16 @@ class BackendResponse:
             or payload.get("message")
             or ""
         )
+        preview_messages = parsePreviewMessages(
+            response_to_user.get("previewMessages") or payload.get("previewMessages") or []
+        )
         inline_elements = parseKeyboard(response_to_user.get("inlineElements") or payload.get("inlineElements") or [])
         reply_elements = parseKeyboard(response_to_user.get("replyElements") or payload.get("replyElements") or [])
 
         return cls(
             recipient_id=str(recipient_id) if recipient_id is not None else None,
             text=str(text),
+            preview_messages=preview_messages,
             inline_elements=inline_elements,
             reply_elements=reply_elements,
             raw_payload=payload,
@@ -93,6 +98,7 @@ class QueueMessage:
     recipient_id: str
     text: str
     adapter: str
+    preview_messages: list[str] = field(default_factory=list)
     inline_elements: list[list[KeyboardElement]] = field(default_factory=list)
     reply_elements: list[list[KeyboardElement]] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -103,6 +109,7 @@ class QueueMessage:
             "recipientId": self.recipient_id,
             "text": self.text,
             "adapter": self.adapter,
+            "previewMessages": self.preview_messages,
             "inlineElements": keyboardToDict(self.inline_elements),
             "replyElements": keyboardToDict(self.reply_elements),
             "metadata": self.metadata,
@@ -114,6 +121,7 @@ class QueueMessage:
         recipient_id: str,
         text: str,
         adapter: str,
+        preview_messages: list[str] | None = None,
         inline_elements: list[list[KeyboardElement]] | None = None,
         reply_elements: list[list[KeyboardElement]] | None = None,
         metadata: dict[str, Any] | None = None,
@@ -123,6 +131,7 @@ class QueueMessage:
             recipient_id=recipient_id,
             text=text,
             adapter=adapter,
+            preview_messages=preview_messages or [],
             inline_elements=inline_elements or [],
             reply_elements=reply_elements or [],
             metadata=metadata or {},
@@ -143,6 +152,7 @@ class QueueMessage:
             recipient_id=str(recipient_id),
             text=str(text),
             adapter=str(payload.get("adapter") or default_adapter),
+            preview_messages=parsePreviewMessages(payload.get("previewMessages") or payload.get("preview_messages") or []),
             inline_elements=parseKeyboard(payload.get("inlineElements") or payload.get("inline_elements") or []),
             reply_elements=parseKeyboard(payload.get("replyElements") or payload.get("reply_elements") or []),
             metadata=dict(payload.get("metadata") or {}),
@@ -165,6 +175,34 @@ def parseKeyboard(rows: list) -> list[list[KeyboardElement]]:
             result.append(parsed_row)
 
     return result
+
+
+def parsePreviewMessages(messages: list) -> list[str]:
+    result: list[str] = []
+
+    for message in messages:
+        text = parsePreviewMessageText(message)
+        if text:
+            result.append(text)
+
+    return result
+
+
+def parsePreviewMessageText(message: Any) -> str:
+    if isinstance(message, str):
+        return message
+
+    if not isinstance(message, dict):
+        return ""
+
+    text = (
+        message.get("responseText")
+        or message.get("text")
+        or message.get("message")
+        or message.get("previewText")
+        or ""
+    )
+    return str(text)
 
 
 def keyboardToDict(rows: list[list[KeyboardElement]]) -> list[list[dict[str, Any]]]:
