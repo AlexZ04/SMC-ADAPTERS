@@ -46,7 +46,7 @@ class NewLongPoll:
                 LOGGER.warning("%s. Следующая попытка через %s сек.", exc, self.retryDelaySeconds)
                 await asyncio.sleep(self.retryDelaySeconds)
             except Exception:
-                LOGGER.exception("Долгий опрос Telegram завершился ошибкой")
+                LOGGER.exception("Telegram long poll завершился ошибкой")
                 await asyncio.sleep(self.retryDelaySeconds)
 
     def registerHandlers(self, handler: Callable[[IncomingMessage], None]) -> None:
