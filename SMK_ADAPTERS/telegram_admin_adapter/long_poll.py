@@ -1,11 +1,13 @@
 import asyncio
+import base64
 import logging
+from io import BytesIO
 from collections.abc import Callable
 
 from aiogram import Dispatcher
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, Document, Message, PhotoSize
 
-from SMK_ADAPTERS.common.models import IncomingMessage
+from SMK_ADAPTERS.common.models import IncomingMessage, MessageFile
 from SMK_ADAPTERS.telegram_admin_adapter.client import TelegramApiError, TelegramBotClient
 
 
@@ -25,6 +27,8 @@ class NewLongPoll:
         self.pollTimeoutSeconds = poll_timeout_seconds
         self.retryDelaySeconds = retry_delay_seconds
         self.dispatcher = Dispatcher()
+        self.mediaGroupMessages: dict[str, list[Message]] = {}
+        self.mediaGroupTasks: dict[str, asyncio.Task] = {}
 
     def listen(self, handler: Callable[[IncomingMessage], None]) -> None:
         self.registerHandlers(handler)
@@ -48,7 +52,11 @@ class NewLongPoll:
     def registerHandlers(self, handler: Callable[[IncomingMessage], None]) -> None:
         @self.dispatcher.message()
         async def onMessage(message: Message) -> None:
-            incomingMessage = self.messageToIncoming(message)
+            if message.media_group_id:
+                await self.handleMediaGroupMessage(message, handler)
+                return
+
+            incomingMessage = await self.messageToIncoming(message)
             if incomingMessage is None:
                 return
 
@@ -71,15 +79,80 @@ class NewLongPoll:
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, handler, message)
 
-    def messageToIncoming(self, message: Message) -> IncomingMessage | None:
-        if message.text is None or message.chat.id is None:
+    async def handleMediaGroupMessage(self, message: Message, handler: Callable[[IncomingMessage], None]) -> None:
+        mediaGroupId = str(message.media_group_id)
+        self.mediaGroupMessages.setdefault(mediaGroupId, []).append(message)
+
+        if mediaGroupId in self.mediaGroupTasks:
+            return
+
+        self.mediaGroupTasks[mediaGroupId] = asyncio.create_task(self.flushMediaGroup(mediaGroupId, handler))
+
+    async def flushMediaGroup(self, mediaGroupId: str, handler: Callable[[IncomingMessage], None]) -> None:
+        await asyncio.sleep(1)
+
+        messages = self.mediaGroupMessages.pop(mediaGroupId, [])
+        self.mediaGroupTasks.pop(mediaGroupId, None)
+        if not messages:
+            return
+
+        incomingMessage = await self.mediaGroupToIncoming(messages)
+        if incomingMessage is None:
+            return
+
+        await self.callHandler(handler, incomingMessage)
+
+    async def mediaGroupToIncoming(self, messages: list[Message]) -> IncomingMessage | None:
+        messages.sort(key=lambda item: item.message_id)
+        firstMessage = messages[0]
+        text = self.findMediaGroupText(messages)
+        attachments: list[MessageFile] = []
+
+        for message in messages:
+            attachments.extend(await self.extractAttachments(message))
+
+        if not text and not attachments:
+            return None
+
+        return IncomingMessage(
+            adapter=self.adapterName,
+            channel="telegram",
+            sender_id=str(firstMessage.chat.id),
+            text=text,
+            attachments=attachments,
+            external_message_id=str(firstMessage.message_id),
+            metadata={
+                "attachmentsAmount": len(attachments),
+                "telegram": {
+                    "mediaGroupId": firstMessage.media_group_id,
+                    "messageIds": [message.message_id for message in messages],
+                    "chat": firstMessage.chat.model_dump(mode="json"),
+                    "from": firstMessage.from_user.model_dump(mode="json") if firstMessage.from_user else None,
+                }
+            },
+        )
+
+    def findMediaGroupText(self, messages: list[Message]) -> str:
+        for message in messages:
+            text = message.text or message.caption
+            if text:
+                return text
+
+        return ""
+
+    async def messageToIncoming(self, message: Message) -> IncomingMessage | None:
+        text = message.text or message.caption or ""
+        attachments = await self.extractAttachments(message)
+
+        if not text and not attachments:
             return None
 
         return IncomingMessage(
             adapter=self.adapterName,
             channel="telegram",
             sender_id=str(message.chat.id),
-            text=message.text,
+            text=text,
+            attachments=attachments,
             external_message_id=str(message.message_id),
             metadata={
                 "telegram": {
@@ -89,6 +162,43 @@ class NewLongPoll:
                 }
             },
         )
+
+    async def extractAttachments(self, message: Message) -> list[MessageFile]:
+        attachments: list[MessageFile] = []
+
+        if message.photo:
+            photo = message.photo[-1]
+            attachments.append(await self.downloadPhoto(photo))
+
+        if message.document:
+            attachments.append(await self.downloadDocument(message.document))
+
+        return attachments
+
+    async def downloadPhoto(self, photo: PhotoSize) -> MessageFile:
+        content = await self.downloadTelegramFile(photo.file_id)
+        return MessageFile(
+            file_name=f"{photo.file_unique_id}.jpg",
+            mime_type="image/jpeg",
+            content_base64=base64.b64encode(content).decode("ascii"),
+        )
+
+    async def downloadDocument(self, document: Document) -> MessageFile:
+        content = await self.downloadTelegramFile(document.file_id)
+        return MessageFile(
+            file_name=document.file_name or f"{document.file_unique_id}",
+            mime_type=document.mime_type or "application/octet-stream",
+            content_base64=base64.b64encode(content).decode("ascii"),
+        )
+
+    async def downloadTelegramFile(self, fileId: str) -> bytes:
+        telegramFile = await self.client.bot.get_file(fileId)
+        if telegramFile.file_path is None:
+            raise RuntimeError("Telegram не вернул путь к файлу")
+
+        destination = BytesIO()
+        await self.client.bot.download_file(telegramFile.file_path, destination=destination)
+        return destination.getvalue()
 
     def callbackToIncoming(self, callback_query: CallbackQuery) -> IncomingMessage | None:
         if callback_query.data is None or callback_query.message is None:

@@ -1,4 +1,8 @@
 ADMIN_QUEUE_NAME = "smc_tg_admin_panel"
+TG_ADMIN_QUEUE_NAME = "smc_tg_admin_panel"
+VK_ADMIN_QUEUE_NAME = "smc_vk_admin_panel"
+TG_USER_QUEUE_NAME = "smc_tg_user"
+VK_USER_QUEUE_NAME = "smc_vk_user"
 DEFAULT_ADMIN_ENDPOINT = "/api/v1/admin"
 REPLY_KEYBOARD_HELP_TEXT = (
     "Сделать выбор можно либо нажав на одну из кнопок выше, либо введите текст вручную.\n"
@@ -36,4 +40,25 @@ TELEGRAM_BUTTON_COLOR_TO_STYLE = {
     "синий": TELEGRAM_BUTTON_STYLE_PRIMARY,
     "#2196f3": TELEGRAM_BUTTON_STYLE_PRIMARY,
     "#0000ff": TELEGRAM_BUTTON_STYLE_PRIMARY,
+}
+
+ADMIN_ROLES = {"ADMIN", "SUPER_ADMIN"}
+USER_ROLE = "USER"
+
+QUEUE_BY_PLATFORM_AND_ROLE = {
+    ("TG", "ADMIN"): TG_ADMIN_QUEUE_NAME,
+    ("TG", "SUPER_ADMIN"): TG_ADMIN_QUEUE_NAME,
+    ("VK", "ADMIN"): VK_ADMIN_QUEUE_NAME,
+    ("VK", "SUPER_ADMIN"): VK_ADMIN_QUEUE_NAME,
+    ("TG", "USER"): TG_USER_QUEUE_NAME,
+    ("VK", "USER"): VK_USER_QUEUE_NAME,
+}
+
+ADAPTER_BY_PLATFORM_AND_ROLE = {
+    ("TG", "ADMIN"): "telegram_admin",
+    ("TG", "SUPER_ADMIN"): "telegram_admin",
+    ("VK", "ADMIN"): "vk_admin",
+    ("VK", "SUPER_ADMIN"): "vk_admin",
+    ("TG", "USER"): "telegram_user",
+    ("VK", "USER"): "vk_user",
 }

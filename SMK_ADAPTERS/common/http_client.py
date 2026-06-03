@@ -19,6 +19,9 @@ class SmcApiClient:
         payload = self.postJson(self._config.admin_endpoint, message.toApiPayload(self._config.platform))
         return BackendResponse.fromPayload(payload, fallback_recipient_id=message.sender_id)
 
+    def getFile(self, fileId: str) -> bytes:
+        return self.getBytes(f"/api/v1/files/{fileId}")
+
     def postJson(self, endpoint: str, payload: dict[str, Any]) -> dict[str, Any]:
         url = self.buildUrl(endpoint)
         LOGGER.info("Отправка запроса в smc.api: %s", url)
@@ -47,6 +50,27 @@ class SmcApiClient:
             raise RuntimeError(f"Запрос к smc.api завершился ошибкой: {exc.reason}") from exc
         except json.JSONDecodeError as exc:
             raise RuntimeError("smc.api вернул некорректный JSON") from exc
+
+    def getBytes(self, endpoint: str) -> bytes:
+        url = self.buildUrl(endpoint)
+        LOGGER.info("Получение файла из smc.api: %s", url)
+        request = Request(
+            url,
+            headers={
+                "Accept": "*/*",
+                "api-key": self._config.api_key,
+            },
+            method="GET",
+        )
+
+        try:
+            with urlopen(request, timeout=self._config.timeout_seconds) as response:
+                return response.read()
+        except HTTPError as exc:
+            details = exc.read().decode("utf-8", errors="replace")
+            raise RuntimeError(f"Запрос файла к smc.api завершился ошибкой со статусом {exc.code}: {details}") from exc
+        except URLError as exc:
+            raise RuntimeError(f"Запрос файла к smc.api завершился ошибкой: {exc.reason}") from exc
 
     def buildUrl(self, endpoint: str) -> str:
         if endpoint.startswith("http://") or endpoint.startswith("https://"):

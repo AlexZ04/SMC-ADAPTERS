@@ -3,9 +3,14 @@ import threading
 import time
 
 from SMK_ADAPTERS.common.config import loadSecretFile
-from SMK_ADAPTERS.common.constants import ADMIN_QUEUE_NAME, REPLY_KEYBOARD_HELP_TEXT
+from SMK_ADAPTERS.common.constants import (
+    ADAPTER_BY_PLATFORM_AND_ROLE,
+    ADMIN_QUEUE_NAME,
+    QUEUE_BY_PLATFORM_AND_ROLE,
+    REPLY_KEYBOARD_HELP_TEXT,
+)
 from SMK_ADAPTERS.common.http_client import SmcApiClient
-from SMK_ADAPTERS.common.models import IncomingMessage, QueueMessage
+from SMK_ADAPTERS.common.models import DistributionReceiver, IncomingMessage, QueueMessage
 from SMK_ADAPTERS.common.parsers import BackendResponseParser
 from SMK_ADAPTERS.common.rabbit import RabbitMqBus
 from SMK_ADAPTERS.telegram_admin_adapter.async_runtime import TelegramAsyncRuntime
@@ -71,6 +76,7 @@ def handleIncomingMessage(message: IncomingMessage):
     )
 
     response = apiClient.sendAdminMessage(message)
+    publishDistributionMessages(response)
     queueMessage = messageParser.parseForAdminQueue(response, ADAPTER_NAME)
 
     if queueMessage is None:
@@ -78,6 +84,73 @@ def handleIncomingMessage(message: IncomingMessage):
         return
 
     publisherBus.publishJson(ADMIN_QUEUE_NAME, queueMessage.toDict())
+
+
+def publishDistributionMessages(response):
+    if publisherBus is None:
+        raise RuntimeError("Адаптер не был запущен через getStarted")
+
+    if response.distribution is None:
+        return
+
+    for receiver in response.distribution.receivers:
+        if shouldSkipDistributionReceiver(response, receiver):
+            LOGGER.debug(
+                "Получатель рассылки пропущен из-за sendToHimself=false: receiver=%s",
+                receiver.receiver_id,
+            )
+            continue
+
+        queueName = getDistributionQueueName(receiver)
+        adapterName = getDistributionAdapterName(receiver)
+        if queueName is None or adapterName is None:
+            LOGGER.warning(
+                "Получатель рассылки пропущен: неизвестная связка platform=%s, role=%s",
+                receiver.platform,
+                receiver.role,
+            )
+            continue
+
+        queueMessage = QueueMessage.create(
+            recipient_id=receiver.receiver_id,
+            text=response.distribution.text,
+            adapter=adapterName,
+            files_ids=response.distribution.files_ids,
+            inline_elements=response.distribution.inline_elements or receiver.inline_elements,
+            reply_elements=receiver.reply_elements,
+            metadata={
+                "source": "smc.api",
+                "distribution": True,
+                "platform": receiver.platform,
+                "role": receiver.role,
+            },
+        )
+        LOGGER.debug(
+            "Публикация сообщения рассылки: queue=%s, receiver=%s, platform=%s, role=%s",
+            queueName,
+            receiver.receiver_id,
+            receiver.platform,
+            receiver.role,
+        )
+        publisherBus.publishJson(queueName, queueMessage.toDict())
+
+
+def shouldSkipDistributionReceiver(response, receiver: DistributionReceiver) -> bool:
+    if response.distribution is None:
+        return False
+
+    if response.distribution.send_to_himself:
+        return False
+
+    return response.recipient_id == receiver.receiver_id
+
+
+def getDistributionQueueName(receiver: DistributionReceiver) -> str | None:
+    return QUEUE_BY_PLATFORM_AND_ROLE.get((receiver.platform, receiver.role))
+
+
+def getDistributionAdapterName(receiver: DistributionReceiver) -> str | None:
+    return ADAPTER_BY_PLATFORM_AND_ROLE.get((receiver.platform, receiver.role))
 
 
 def handleQueueMessage(payload: dict):
@@ -101,20 +174,29 @@ def handleQueueMessage(payload: dict):
 
 
 def sendQueueMessageToTelegram(message: QueueMessage):
-    if telegramClient is None:
+    if telegramClient is None or apiClient is None:
         raise RuntimeError("Адаптер не был запущен через getStarted")
 
     hasInlineKeyboard = bool(message.inline_elements)
     hasReplyKeyboard = bool(message.reply_elements)
     previewMessages = list(message.preview_messages)
+    filesIds = list(message.files_ids)
 
     if hasInlineKeyboard and hasReplyKeyboard:
         sendPreviewMessages(message.recipient_id, previewMessages)
-        telegramClient.sendMessage(
-            chat_id=message.recipient_id,
-            text=message.text,
-            inline_elements=message.inline_elements,
-        )
+        if filesIds:
+            sendFilesWithTargetMessage(
+                recipientId=message.recipient_id,
+                filesIds=filesIds,
+                text=message.text,
+                inlineElements=message.inline_elements,
+            )
+        else:
+            telegramClient.sendMessage(
+                chat_id=message.recipient_id,
+                text=message.text,
+                inline_elements=message.inline_elements,
+            )
         telegramClient.sendMessage(
             chat_id=message.recipient_id,
             text=REPLY_KEYBOARD_HELP_TEXT,
@@ -123,6 +205,15 @@ def sendQueueMessageToTelegram(message: QueueMessage):
         return
 
     sendPreviewMessages(message.recipient_id, previewMessages)
+    if filesIds:
+        sendFilesWithTargetMessage(
+            recipientId=message.recipient_id,
+            filesIds=filesIds,
+            text=message.text,
+            inlineElements=message.inline_elements,
+            replyElements=message.reply_elements,
+        )
+        return
 
     telegramClient.sendMessage(
         chat_id=message.recipient_id,
@@ -141,6 +232,69 @@ def sendPreviewMessages(recipientId: str, previewMessages: list[str]):
             chat_id=recipientId,
             text=previewMessage,
         )
+
+
+def sendFilesWithTargetMessage(
+    recipientId: str,
+    filesIds: list[str],
+    text: str,
+    inlineElements=None,
+    replyElements=None,
+):
+    if telegramClient is None or apiClient is None:
+        raise RuntimeError("Адаптер не был запущен через getStarted")
+
+    files = loadFiles(filesIds)
+    if len(files) == 1:
+        content, fileName = files[0]
+        telegramClient.sendImageWithText(
+            chat_id=recipientId,
+            content=content,
+            file_name=fileName,
+            text=text,
+            inline_elements=inlineElements,
+            reply_elements=replyElements,
+        )
+        return
+
+    telegramClient.sendImagesWithText(
+        chat_id=recipientId,
+        files=files,
+        text=text,
+    )
+
+    if inlineElements:
+        LOGGER.debug("Inline-клавиатура не отправлена с альбомом: Telegram не поддерживает reply_markup для media group")
+
+
+def loadFiles(filesIds: list[str]) -> list[tuple[bytes, str]]:
+    if apiClient is None:
+        raise RuntimeError("Адаптер не был запущен через getStarted")
+
+    files: list[tuple[bytes, str]] = []
+    for index, fileId in enumerate(filesIds, start=1):
+        content = apiClient.getFile(fileId)
+        files.append((content, makeFileName(fileId, index, content)))
+
+    return files
+
+
+def makeFileName(fileId: str, index: int, content: bytes) -> str:
+    extension = detectImageExtension(content)
+    return f"{fileId}-{index}.{extension}"
+
+
+def detectImageExtension(content: bytes) -> str:
+    if content.startswith(b"\xff\xd8\xff"):
+        return "jpg"
+    if content.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "png"
+    if content.startswith(b"GIF87a") or content.startswith(b"GIF89a"):
+        return "gif"
+    if len(content) >= 12 and content[:4] == b"RIFF" and content[8:12] == b"WEBP":
+        return "webp"
+
+    return "bin"
 
 
 def startRabbitListening():

@@ -11,6 +11,7 @@ class BackendResponseParser:
             text=self.transformText(response.text),
             adapter=adapter_name,
             preview_messages=[self.transformText(message) for message in response.preview_messages],
+            files_ids=response.files_ids,
             inline_elements=response.inline_elements,
             reply_elements=response.reply_elements,
             metadata={"source": "smc.api", "raw": response.raw_payload},
