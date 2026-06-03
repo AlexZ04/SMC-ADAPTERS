@@ -10,6 +10,7 @@ from SMK_ADAPTERS.common.constants import (
     VK_USER_QUEUE_NAME,
 )
 from SMK_ADAPTERS.common.http_client import SmcApiClient
+from SMK_ADAPTERS.common.macros import TriggerUser, buildVkTriggerUser, replaceUserMacros
 from SMK_ADAPTERS.common.models import IncomingMessage, QueueMessage
 from SMK_ADAPTERS.common.parsers import BackendResponseParser
 from SMK_ADAPTERS.common.rabbit import RabbitMqBus
@@ -76,13 +77,15 @@ def handleIncomingMessage(message: IncomingMessage):
         message.text,
     )
 
+    triggerUser = getTriggerUser(message)
+
     if adapterRole in {"ADMIN", "SUPER_ADMIN"}:
         response = apiClient.sendAdminMessage(message)
     else:
         response = apiClient.sendUserMessage(message)
 
-    publishDistributionMessages(response)
-    queueMessage = messageParser.parseForAdminQueue(response, adapterName)
+    publishDistributionMessages(response, triggerUser)
+    queueMessage = messageParser.parseForAdminQueue(response, adapterName, triggerUser)
     if queueMessage is None:
         LOGGER.info("Ответ smc.api не сформировал сообщение для очереди VK")
         return
@@ -90,7 +93,18 @@ def handleIncomingMessage(message: IncomingMessage):
     publisherBus.publishJson(queueName, queueMessage.toDict())
 
 
-def publishDistributionMessages(response):
+def getTriggerUser(message: IncomingMessage) -> TriggerUser:
+    if vkClient is None:
+        return buildVkTriggerUser(message.sender_id)
+
+    try:
+        return buildVkTriggerUser(message.sender_id, vkClient.getUserProfile(message.sender_id))
+    except VkApiError:
+        LOGGER.exception("Не удалось получить профиль пользователя VK для подстановки макросов: user_id=%s", message.sender_id)
+        return buildVkTriggerUser(message.sender_id)
+
+
+def publishDistributionMessages(response, triggerUser: TriggerUser | None = None):
     if publisherBus is None:
         raise RuntimeError("Адаптер не был запущен через getStarted")
 
@@ -117,7 +131,7 @@ def publishDistributionMessages(response):
 
         queueMessage = QueueMessage.create(
             recipient_id=receiver.receiver_id,
-            text=response.distribution.text,
+            text=replaceUserMacros(response.distribution.text, triggerUser),
             adapter=adapterNameForReceiver,
             files_ids=response.distribution.files_ids,
             inline_elements=response.distribution.inline_elements or receiver.inline_elements,

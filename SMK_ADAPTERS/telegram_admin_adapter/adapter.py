@@ -10,6 +10,7 @@ from SMK_ADAPTERS.common.constants import (
     REPLY_KEYBOARD_HELP_TEXT,
 )
 from SMK_ADAPTERS.common.http_client import SmcApiClient
+from SMK_ADAPTERS.common.macros import TriggerUser, buildTelegramTriggerUser, replaceUserMacros
 from SMK_ADAPTERS.common.models import DistributionReceiver, IncomingMessage, QueueMessage
 from SMK_ADAPTERS.common.parsers import BackendResponseParser
 from SMK_ADAPTERS.common.rabbit import RabbitMqBus
@@ -75,9 +76,10 @@ def handleIncomingMessage(message: IncomingMessage):
         message.text,
     )
 
+    triggerUser = buildTelegramTriggerUser(message)
     response = apiClient.sendAdminMessage(message)
-    publishDistributionMessages(response)
-    queueMessage = messageParser.parseForAdminQueue(response, ADAPTER_NAME)
+    publishDistributionMessages(response, triggerUser)
+    queueMessage = messageParser.parseForAdminQueue(response, ADAPTER_NAME, triggerUser)
 
     if queueMessage is None:
         LOGGER.info("Ответ smc.api не сформировал сообщение для очереди администратора")
@@ -86,7 +88,7 @@ def handleIncomingMessage(message: IncomingMessage):
     publisherBus.publishJson(ADMIN_QUEUE_NAME, queueMessage.toDict())
 
 
-def publishDistributionMessages(response):
+def publishDistributionMessages(response, triggerUser: TriggerUser | None = None):
     if publisherBus is None:
         raise RuntimeError("Адаптер не был запущен через getStarted")
 
@@ -113,7 +115,7 @@ def publishDistributionMessages(response):
 
         queueMessage = QueueMessage.create(
             recipient_id=receiver.receiver_id,
-            text=response.distribution.text,
+            text=replaceUserMacros(response.distribution.text, triggerUser),
             adapter=adapterName,
             files_ids=response.distribution.files_ids,
             inline_elements=response.distribution.inline_elements or receiver.inline_elements,

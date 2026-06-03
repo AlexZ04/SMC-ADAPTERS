@@ -10,13 +10,14 @@ from vk_api import VkApi, VkUpload
 from vk_api.keyboard import VkKeyboard, VkKeyboardColor
 from vk_api.utils import get_random_id
 
-from SMK_ADAPTERS.common.constants import TELEGRAM_BUTTON_COLOR_TO_STYLE
+from SMK_ADAPTERS.common.constants import VK_BUTTON_COLOR_TO_STYLE
 from SMK_ADAPTERS.common.models import KeyboardElement
 
 
 LOGGER = logging.getLogger(__name__)
 VK_BUTTON_LABEL_MAX_LENGTH = 40
 PHOTO_ATTACHMENT_CACHE_MAX_ITEMS = 256
+USER_PROFILE_CACHE_MAX_ITEMS = 1024
 
 
 class VkApiError(RuntimeError):
@@ -32,6 +33,8 @@ class VkBotClient:
         self.upload = VkUpload(self.authorize)
         self._photo_attachment_cache: OrderedDict[str, str] = OrderedDict()
         self._photo_attachment_cache_lock = threading.Lock()
+        self._user_profile_cache: OrderedDict[str, dict[str, Any]] = OrderedDict()
+        self._user_profile_cache_lock = threading.Lock()
 
     def sendMessage(
         self,
@@ -209,15 +212,49 @@ class VkBotClient:
         return text[:VK_BUTTON_LABEL_MAX_LENGTH]
 
     def getButtonColor(self, element: KeyboardElement) -> VkKeyboardColor:
-        style = TELEGRAM_BUTTON_COLOR_TO_STYLE.get((element.color or "").strip().lower())
-        if style == "danger":
-            return VkKeyboardColor.NEGATIVE
-        if style == "success":
+        style = VK_BUTTON_COLOR_TO_STYLE.get((element.color or "").strip().lower())
+        if style == "positive":
             return VkKeyboardColor.POSITIVE
         if style == "primary":
             return VkKeyboardColor.PRIMARY
 
         return VkKeyboardColor.SECONDARY
+
+    def getUserProfile(self, user_id: str) -> dict[str, Any]:
+        cachedProfile = self.getCachedUserProfile(user_id)
+        if cachedProfile is not None:
+            return cachedProfile
+
+        profiles = self.request(
+            "users.get",
+            {
+                "user_ids": user_id,
+                "fields": "domain,screen_name",
+            },
+        )
+        if not profiles:
+            return {}
+
+        profile = dict(profiles[0])
+        self.cacheUserProfile(user_id, profile)
+        return profile
+
+    def getCachedUserProfile(self, user_id: str) -> dict[str, Any] | None:
+        with self._user_profile_cache_lock:
+            profile = self._user_profile_cache.get(user_id)
+            if profile is None:
+                return None
+
+            self._user_profile_cache.move_to_end(user_id)
+            return profile
+
+    def cacheUserProfile(self, user_id: str, profile: dict[str, Any]) -> None:
+        with self._user_profile_cache_lock:
+            self._user_profile_cache[user_id] = profile
+            self._user_profile_cache.move_to_end(user_id)
+
+            while len(self._user_profile_cache) > USER_PROFILE_CACHE_MAX_ITEMS:
+                self._user_profile_cache.popitem(last=False)
 
     def request(self, method: str, payload: dict[str, Any]) -> Any:
         try:
