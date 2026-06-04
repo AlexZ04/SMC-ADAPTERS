@@ -146,7 +146,7 @@ def shouldSkipDistributionReceiver(response, receiver) -> bool:
     if response.distribution.send_to_himself:
         return False
 
-    return response.recipient_id == receiver.receiver_id
+    return response.platform == receiver.platform and response.recipient_id == receiver.receiver_id
 
 
 def handleQueueMessage(payload: dict):

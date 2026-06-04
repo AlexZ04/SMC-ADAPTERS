@@ -159,7 +159,7 @@ def shouldSkipDistributionReceiver(response, receiver: DistributionReceiver) -> 
     if response.distribution.send_to_himself:
         return False
 
-    return response.recipient_id == receiver.receiver_id
+    return response.platform == receiver.platform and response.recipient_id == receiver.receiver_id
 
 
 def getDistributionQueueName(receiver: DistributionReceiver) -> str | None:

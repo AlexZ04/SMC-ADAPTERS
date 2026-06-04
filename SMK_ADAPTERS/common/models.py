@@ -87,6 +87,7 @@ class IncomingMessage:
 class BackendResponse:
     recipient_id: str | None
     text: str
+    platform: str | None = None
     role: str | None = None
     preview_messages: list[str] = field(default_factory=list)
     files_ids: list[str] = field(default_factory=list)
@@ -113,6 +114,7 @@ class BackendResponse:
             or payload.get("message")
             or ""
         )
+        platform = str(payload.get("platform")).upper() if payload.get("platform") is not None else None
         role = str(payload.get("role")) if payload.get("role") is not None else None
         preview_messages = parsePreviewMessages(
             response_to_user.get("previewMessages") or payload.get("previewMessages") or []
@@ -131,6 +133,7 @@ class BackendResponse:
         return cls(
             recipient_id=str(recipient_id) if recipient_id is not None else None,
             text=str(text),
+            platform=platform,
             role=role,
             preview_messages=preview_messages,
             files_ids=files_ids,
