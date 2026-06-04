@@ -5,9 +5,10 @@ import time
 from SMK_ADAPTERS.common.config import loadSecretFile
 from SMK_ADAPTERS.common.constants import (
     ADAPTER_BY_PLATFORM_AND_ROLE,
-    QUEUE_BY_PLATFORM_AND_ROLE,
     VK_ADMIN_QUEUE_NAME,
     VK_USER_QUEUE_NAME,
+    buildQueueByPlatformAndRole,
+    makeQueueName,
 )
 from SMK_ADAPTERS.common.http_client import SmcApiClient
 from SMK_ADAPTERS.common.macros import TriggerUser, buildVkTriggerUser, replaceUserMacros
@@ -36,6 +37,8 @@ vkClient: VkBotClient | None = None
 publisherBus: RabbitMqBus | None = None
 consumerBuses: dict[str, RabbitMqBus] = {}
 longPoll: NewLongPoll | None = None
+queueByPlatformAndRole: dict[tuple[str, str], str] = {}
+vkQueueDefaultAdapters: dict[str, str] = {}
 
 
 def getStarted():
@@ -48,20 +51,27 @@ def getStarted():
     global publisherBus
     global consumerBuses
     global longPoll
+    global queueByPlatformAndRole
+    global vkQueueDefaultAdapters
 
     settings = loadSettings()
     token = loadSecretFile(settings.vk.token_file)
     adapterRole = normalizeRole(settings.vk.adapter_role)
     adapterName = ADAPTER_BY_PLATFORM_AND_ROLE[("VK", adapterRole)]
-    queueName = QUEUE_BY_PLATFORM_AND_ROLE[("VK", adapterRole)]
+    queueByPlatformAndRole = buildQueueByPlatformAndRole(settings.common.deployment.queue_prefix)
+    queueName = queueByPlatformAndRole[("VK", adapterRole)]
+    vkQueueDefaultAdapters = {
+        makeQueueName(baseQueueName, settings.common.deployment.queue_prefix): defaultAdapter
+        for baseQueueName, defaultAdapter in VK_QUEUE_DEFAULT_ADAPTERS.items()
+    }
 
     vkClient = VkBotClient(token=token)
     apiClient = SmcApiClient(settings.common.api)
     messageParser = BackendResponseParser()
     publisherBus = RabbitMqBus(settings.common.rabbit)
     consumerBuses = {
-        VK_USER_QUEUE_NAME: RabbitMqBus(settings.common.rabbit),
-        VK_ADMIN_QUEUE_NAME: RabbitMqBus(settings.common.rabbit),
+        queueNameForListening: RabbitMqBus(settings.common.rabbit)
+        for queueNameForListening in vkQueueDefaultAdapters
     }
     longPoll = NewLongPoll(client=vkClient, adapter_name=adapterName)
 
@@ -85,7 +95,7 @@ def handleIncomingMessage(message: IncomingMessage):
         response = apiClient.sendUserMessage(message)
 
     publishDistributionMessages(response, triggerUser)
-    queueMessage = messageParser.parseForAdminQueue(response, adapterName, triggerUser)
+    queueMessage = messageParser.parseForAdminQueue(response, adapterName, triggerUser, resolveUserMacro)
     if queueMessage is None:
         LOGGER.info("Ответ smc.api не сформировал сообщение для очереди VK")
         return
@@ -119,7 +129,7 @@ def publishDistributionMessages(response, triggerUser: TriggerUser | None = None
             )
             continue
 
-        queueNameForReceiver = QUEUE_BY_PLATFORM_AND_ROLE.get((receiver.platform, receiver.role))
+        queueNameForReceiver = queueByPlatformAndRole.get((receiver.platform, receiver.role))
         adapterNameForReceiver = ADAPTER_BY_PLATFORM_AND_ROLE.get((receiver.platform, receiver.role))
         if queueNameForReceiver is None or adapterNameForReceiver is None:
             LOGGER.warning(
@@ -131,7 +141,7 @@ def publishDistributionMessages(response, triggerUser: TriggerUser | None = None
 
         queueMessage = QueueMessage.create(
             recipient_id=receiver.receiver_id,
-            text=replaceUserMacros(response.distribution.text, triggerUser),
+            text=replaceUserMacros(response.distribution.text, triggerUser, resolveUserMacro),
             adapter=adapterNameForReceiver,
             files_ids=response.distribution.files_ids,
             inline_elements=response.distribution.inline_elements or receiver.inline_elements,
@@ -183,14 +193,17 @@ def sendQueueMessageToVk(message: QueueMessage):
         raise RuntimeError("Адаптер не был запущен через getStarted")
 
     for previewMessage in message.preview_messages:
+        previewMessage = replaceUserMacros(previewMessage, None, resolveUserMacro)
         vkClient.sendMessage(chat_id=message.recipient_id, text=previewMessage)
+
+    text = replaceUserMacros(message.text, None, resolveUserMacro)
 
     if message.files_ids:
         files = loadFiles(message.files_ids)
         vkClient.sendImagesWithText(
             chat_id=message.recipient_id,
             files=files,
-            text=message.text,
+            text=text,
             inline_elements=message.inline_elements,
             reply_elements=message.reply_elements,
         )
@@ -198,10 +211,24 @@ def sendQueueMessageToVk(message: QueueMessage):
 
     vkClient.sendMessage(
         chat_id=message.recipient_id,
-        text=message.text,
+        text=text,
         inline_elements=message.inline_elements,
         reply_elements=message.reply_elements,
     )
+
+
+def resolveUserMacro(platform: str, userId: str) -> TriggerUser | None:
+    if platform == "VK":
+        if vkClient is None:
+            return buildVkTriggerUser(userId)
+
+        try:
+            return buildVkTriggerUser(userId, vkClient.getUserProfile(userId))
+        except VkApiError:
+            LOGGER.exception("Не удалось получить профиль пользователя VK для подстановки макросов: user_id=%s", userId)
+            return buildVkTriggerUser(userId)
+
+    return None
 
 
 def loadFiles(filesIds: list[str]) -> list[tuple[bytes, str]]:
@@ -260,7 +287,7 @@ def runAdapter():
             name=f"vk-rabbit-consumer-{defaultAdapter}",
             daemon=True,
         )
-        for queueNameForListening, defaultAdapter in VK_QUEUE_DEFAULT_ADAPTERS.items()
+        for queueNameForListening, defaultAdapter in vkQueueDefaultAdapters.items()
     ]
     vkThread = threading.Thread(target=startVkListening, name="vk-long-poll", daemon=True)
 

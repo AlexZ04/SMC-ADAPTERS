@@ -1,4 +1,6 @@
+import re
 from dataclasses import dataclass
+from collections.abc import Callable
 from typing import Any
 
 from SMK_ADAPTERS.common.models import IncomingMessage
@@ -16,17 +18,45 @@ USER_MACROS = {
     "{getId()}": "user_id",
     "{getLink()}": "link",
 }
+EXPLICIT_USER_MACRO_PATTERN = re.compile(r"\{(getName|getId|getLink)\(([A-Za-z]+):([^{}()]+)\)\}")
+MacroResolver = Callable[[str, str], TriggerUser | None]
 
 
-def replaceUserMacros(text: str, user: TriggerUser | None) -> str:
-    if user is None or not text:
+def replaceUserMacros(
+    text: str,
+    user: TriggerUser | None,
+    resolver: MacroResolver | None = None,
+) -> str:
+    if not text:
         return text
 
     result = text
-    for macro, fieldName in USER_MACROS.items():
-        result = result.replace(macro, getattr(user, fieldName))
+    if user is not None:
+        for macro, fieldName in USER_MACROS.items():
+            result = result.replace(macro, getattr(user, fieldName))
 
-    return result
+    if resolver is None:
+        return result
+
+    return EXPLICIT_USER_MACRO_PATTERN.sub(lambda match: replaceExplicitUserMacro(match, resolver), result)
+
+
+def replaceExplicitUserMacro(match: re.Match[str], resolver: MacroResolver) -> str:
+    methodName = match.group(1)
+    platform = match.group(2).upper()
+    userId = match.group(3).strip()
+    user = resolver(platform, userId)
+    if user is None:
+        return match.group(0)
+
+    if methodName == "getName":
+        return user.name
+    if methodName == "getId":
+        return user.user_id
+    if methodName == "getLink":
+        return user.link
+
+    return match.group(0)
 
 
 def buildTelegramTriggerUser(message: IncomingMessage) -> TriggerUser:

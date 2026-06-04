@@ -23,7 +23,28 @@
   ],
   "queues": [
     {
-      "name": "smc_tg_admin_panel",
+      "name": "test_smc_tg_admin_panel",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    },
+    {
+      "name": "test_smc_vk_admin_panel",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    },
+    {
+      "name": "test_smc_tg_user",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    },
+    {
+      "name": "test_smc_vk_user",
       "vhost": "/",
       "durable": true,
       "auto_delete": false,

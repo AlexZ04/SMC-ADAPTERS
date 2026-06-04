@@ -26,9 +26,16 @@ class RabbitConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class DeploymentConfig:
+    environment: str
+    queue_prefix: str
+
+
+@dataclass(frozen=True, slots=True)
 class CommonSettings:
     api: ApiConfig
     rabbit: RabbitConfig
+    deployment: DeploymentConfig
 
 
 def loadCommonSettings(default_admin_endpoint: str, values: dict[str, str] | None = None) -> CommonSettings:
@@ -52,7 +59,23 @@ def loadCommonSettings(default_admin_endpoint: str, values: dict[str, str] | Non
             blocked_connection_timeout=int(getSetting("RABBITMQ_BLOCKED_CONNECTION_TIMEOUT", config_values, "30")),
             prefetch_count=int(getSetting("RABBITMQ_PREFETCH_COUNT", config_values, "10")),
         ),
+        deployment=loadDeploymentConfig(config_values),
     )
+
+
+def loadDeploymentConfig(values: dict[str, str]) -> DeploymentConfig:
+    environment = normalizeDeploymentEnvironment(getSetting("SMC_ADAPTER_ENVIRONMENT", values, "test"))
+    return DeploymentConfig(environment=environment, queue_prefix=environment)
+
+
+def normalizeDeploymentEnvironment(value: str) -> str:
+    normalized = value.strip().lower()
+    if normalized in {"prod", "production"}:
+        return "prod"
+    if normalized in {"test", "testing", "stage", "staging"}:
+        return "test"
+
+    raise RuntimeError("SMC_ADAPTER_ENVIRONMENT должен быть prod или test")
 
 
 def loadSecretFile(path: Path) -> str:

@@ -63,6 +63,17 @@ QUEUE_BY_PLATFORM_AND_ROLE = {
     ("VK", "USER"): VK_USER_QUEUE_NAME,
 }
 
+
+def makeQueueName(base_queue_name: str, queue_prefix: str) -> str:
+    return f"{queue_prefix}_{base_queue_name}"
+
+
+def buildQueueByPlatformAndRole(queue_prefix: str) -> dict[tuple[str, str], str]:
+    return {
+        key: makeQueueName(baseQueueName, queue_prefix)
+        for key, baseQueueName in QUEUE_BY_PLATFORM_AND_ROLE.items()
+    }
+
 ADAPTER_BY_PLATFORM_AND_ROLE = {
     ("TG", "ADMIN"): "telegram_admin",
     ("TG", "SUPER_ADMIN"): "telegram_admin",

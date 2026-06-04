@@ -5,9 +5,8 @@ import time
 from SMK_ADAPTERS.common.config import loadSecretFile
 from SMK_ADAPTERS.common.constants import (
     ADAPTER_BY_PLATFORM_AND_ROLE,
-    ADMIN_QUEUE_NAME,
-    QUEUE_BY_PLATFORM_AND_ROLE,
     REPLY_KEYBOARD_HELP_TEXT,
+    buildQueueByPlatformAndRole,
 )
 from SMK_ADAPTERS.common.http_client import SmcApiClient
 from SMK_ADAPTERS.common.macros import TriggerUser, buildTelegramTriggerUser, replaceUserMacros
@@ -30,6 +29,8 @@ telegramRuntime: TelegramAsyncRuntime | None = None
 publisherBus: RabbitMqBus | None = None
 consumerBus: RabbitMqBus | None = None
 longPoll: NewLongPoll | None = None
+adminQueueName: str = "smc_tg_admin_panel"
+queueByPlatformAndRole: dict[tuple[str, str], str] = {}
 
 
 def getStarted():
@@ -40,9 +41,13 @@ def getStarted():
     global publisherBus
     global consumerBus
     global longPoll
+    global adminQueueName
+    global queueByPlatformAndRole
 
     settings = loadSettings()
     token = loadSecretFile(settings.telegram.token_file)
+    queueByPlatformAndRole = buildQueueByPlatformAndRole(settings.common.deployment.queue_prefix)
+    adminQueueName = queueByPlatformAndRole[("TG", "ADMIN")]
 
     telegramRuntime = TelegramAsyncRuntime()
     telegramRuntime.start()
@@ -79,13 +84,18 @@ def handleIncomingMessage(message: IncomingMessage):
     triggerUser = buildTelegramTriggerUser(message)
     response = apiClient.sendAdminMessage(message)
     publishDistributionMessages(response, triggerUser)
-    queueMessage = messageParser.parseForAdminQueue(response, ADAPTER_NAME, triggerUser)
+    queueMessage = messageParser.parseForAdminQueue(
+        response,
+        ADAPTER_NAME,
+        triggerUser,
+        lambda platform, userId: resolveUserMacro(platform, userId, triggerUser),
+    )
 
     if queueMessage is None:
         LOGGER.info("Ответ smc.api не сформировал сообщение для очереди администратора")
         return
 
-    publisherBus.publishJson(ADMIN_QUEUE_NAME, queueMessage.toDict())
+    publisherBus.publishJson(adminQueueName, queueMessage.toDict())
 
 
 def publishDistributionMessages(response, triggerUser: TriggerUser | None = None):
@@ -115,7 +125,11 @@ def publishDistributionMessages(response, triggerUser: TriggerUser | None = None
 
         queueMessage = QueueMessage.create(
             recipient_id=receiver.receiver_id,
-            text=replaceUserMacros(response.distribution.text, triggerUser),
+            text=replaceUserMacros(
+                response.distribution.text,
+                triggerUser,
+                lambda platform, userId: resolveUserMacro(platform, userId, triggerUser),
+            ),
             adapter=adapterName,
             files_ids=response.distribution.files_ids,
             inline_elements=response.distribution.inline_elements or receiver.inline_elements,
@@ -148,11 +162,25 @@ def shouldSkipDistributionReceiver(response, receiver: DistributionReceiver) -> 
 
 
 def getDistributionQueueName(receiver: DistributionReceiver) -> str | None:
-    return QUEUE_BY_PLATFORM_AND_ROLE.get((receiver.platform, receiver.role))
+    return queueByPlatformAndRole.get((receiver.platform, receiver.role))
 
 
 def getDistributionAdapterName(receiver: DistributionReceiver) -> str | None:
     return ADAPTER_BY_PLATFORM_AND_ROLE.get((receiver.platform, receiver.role))
+
+
+def resolveUserMacro(platform: str, userId: str, triggerUser: TriggerUser | None = None) -> TriggerUser | None:
+    if platform != "TG":
+        return None
+
+    if triggerUser is not None and triggerUser.user_id == userId:
+        return triggerUser
+
+    return TriggerUser(
+        name=userId,
+        user_id=userId,
+        link=f"tg://user?id={userId}",
+    )
 
 
 def handleQueueMessage(payload: dict):
@@ -181,8 +209,12 @@ def sendQueueMessageToTelegram(message: QueueMessage):
 
     hasInlineKeyboard = bool(message.inline_elements)
     hasReplyKeyboard = bool(message.reply_elements)
-    previewMessages = list(message.preview_messages)
+    previewMessages = [
+        replaceUserMacros(previewMessage, None, resolveUserMacro)
+        for previewMessage in message.preview_messages
+    ]
     filesIds = list(message.files_ids)
+    text = replaceUserMacros(message.text, None, resolveUserMacro)
 
     if hasInlineKeyboard and hasReplyKeyboard:
         sendPreviewMessages(message.recipient_id, previewMessages)
@@ -190,13 +222,13 @@ def sendQueueMessageToTelegram(message: QueueMessage):
             sendFilesWithTargetMessage(
                 recipientId=message.recipient_id,
                 filesIds=filesIds,
-                text=message.text,
+                text=text,
                 inlineElements=message.inline_elements,
             )
         else:
             telegramClient.sendMessage(
                 chat_id=message.recipient_id,
-                text=message.text,
+                text=text,
                 inline_elements=message.inline_elements,
             )
         telegramClient.sendMessage(
@@ -211,7 +243,7 @@ def sendQueueMessageToTelegram(message: QueueMessage):
         sendFilesWithTargetMessage(
             recipientId=message.recipient_id,
             filesIds=filesIds,
-            text=message.text,
+            text=text,
             inlineElements=message.inline_elements,
             replyElements=message.reply_elements,
         )
@@ -219,7 +251,7 @@ def sendQueueMessageToTelegram(message: QueueMessage):
 
     telegramClient.sendMessage(
         chat_id=message.recipient_id,
-        text=message.text,
+        text=text,
         inline_elements=message.inline_elements,
         reply_elements=message.reply_elements,
     )
@@ -306,7 +338,7 @@ def startRabbitListening():
     while True:
         try:
             consumerBus.reconnectForever()
-            consumerBus.consumeJson(ADMIN_QUEUE_NAME, handleQueueMessage)
+            consumerBus.consumeJson(adminQueueName, handleQueueMessage)
         except Exception:
             LOGGER.exception("Цикл чтения из RabbitMQ завершился ошибкой")
             time.sleep(5)
