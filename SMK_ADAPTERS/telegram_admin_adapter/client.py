@@ -35,8 +35,14 @@ class TelegramApiError(RuntimeError):
 
 
 class TelegramBotClient:
-    def __init__(self, token: str, runtime: TelegramAsyncRuntime, timeout_seconds: float = 10) -> None:
-        self.bot = Bot(token=token, session=AiohttpSession(timeout=timeout_seconds))
+    def __init__(
+        self,
+        token: str,
+        runtime: TelegramAsyncRuntime,
+        timeout_seconds: float = 10,
+        proxy_url: str | None = None,
+    ) -> None:
+        self.bot = Bot(token=token, session=AiohttpSession(timeout=timeout_seconds, proxy=proxy_url))
         self.runtime = runtime
         self.timeoutSeconds = timeout_seconds
 

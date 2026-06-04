@@ -55,6 +55,7 @@ def getStarted():
         token=token,
         runtime=telegramRuntime,
         timeout_seconds=settings.common.api.timeout_seconds,
+        proxy_url=settings.telegram.proxy_url,
     )
     apiClient = SmcApiClient(settings.common.api)
     messageParser = BackendResponseParser()

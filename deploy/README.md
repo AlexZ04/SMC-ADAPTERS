@@ -58,7 +58,20 @@ SMC_API_USER_ENDPOINT=/api/v1/user
 SMC_API_PLATFORM=TG
 SMC_ADAPTER_ENVIRONMENT=prod
 RABBITMQ_URL=amqp://guest:guest@127.0.0.1:5672/
+# TELEGRAM_PROXY_URL=socks5://user:password@host:port
 LOG_LEVEL=INFO
+```
+
+Если с сервера нет прямого доступа к `api.telegram.org:443`, укажите прокси:
+
+```env
+TELEGRAM_PROXY_URL=socks5://user:password@host:port
+```
+
+Также поддерживается HTTP-прокси:
+
+```env
+TELEGRAM_PROXY_URL=http://user:password@host:port
 ```
 
 Секреты на сервере:
