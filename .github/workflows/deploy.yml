@@ -3,7 +3,7 @@ name: deploy
 on:
   push:
     branches:
-      - main
+      - master
   workflow_dispatch:
 
 jobs:
@@ -41,9 +41,9 @@ jobs:
             fi
 
             cd "${DEPLOY_DIR}"
-            git fetch origin main
-            git checkout main
-            git pull --ff-only origin main
+            git fetch origin master
+            git checkout master
+            git pull --ff-only origin master
             chmod +x deploy/install-systemd.sh
             ./deploy/install-systemd.sh
           EOF
