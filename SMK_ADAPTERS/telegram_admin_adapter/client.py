@@ -1,6 +1,7 @@
 from typing import Any
 
 from aiogram import Bot
+from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
 from aiogram.types import (
     BufferedInputFile,
@@ -35,7 +36,7 @@ class TelegramApiError(RuntimeError):
 
 class TelegramBotClient:
     def __init__(self, token: str, runtime: TelegramAsyncRuntime, timeout_seconds: float = 10) -> None:
-        self.bot = Bot(token=token)
+        self.bot = Bot(token=token, session=AiohttpSession(timeout=timeout_seconds))
         self.runtime = runtime
         self.timeoutSeconds = timeout_seconds
 

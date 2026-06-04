@@ -5,6 +5,7 @@ from io import BytesIO
 from collections.abc import Callable
 
 from aiogram import Dispatcher
+from aiogram.exceptions import TelegramNetworkError
 from aiogram.types import CallbackQuery, Document, Message, PhotoSize
 
 from SMK_ADAPTERS.common.models import IncomingMessage, MessageFile
@@ -45,6 +46,13 @@ class NewLongPoll:
                 )
             except RuntimeError as exc:
                 LOGGER.warning("%s. Следующая попытка через %s сек.", exc, self.retryDelaySeconds)
+                await asyncio.sleep(self.retryDelaySeconds)
+            except TelegramNetworkError as exc:
+                LOGGER.warning(
+                    "Сетевая ошибка Telegram long poll: %s. Следующая попытка через %s сек.",
+                    exc,
+                    self.retryDelaySeconds,
+                )
                 await asyncio.sleep(self.retryDelaySeconds)
             except Exception:
                 LOGGER.exception("Telegram long poll завершился ошибкой")
