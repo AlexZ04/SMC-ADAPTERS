@@ -53,6 +53,8 @@ VK_BUTTON_COLOR_TO_STYLE = {
 
 ADMIN_ROLES = {"ADMIN", "SUPER_ADMIN"}
 USER_ROLE = "USER"
+ADMIN_CHANNEL = "admin-channel"
+USER_CHANNEL = "user-channel"
 
 QUEUE_BY_PLATFORM_AND_ROLE = {
     ("TG", "ADMIN"): TG_ADMIN_QUEUE_NAME,
@@ -61,6 +63,13 @@ QUEUE_BY_PLATFORM_AND_ROLE = {
     ("VK", "SUPER_ADMIN"): VK_ADMIN_QUEUE_NAME,
     ("TG", "USER"): TG_USER_QUEUE_NAME,
     ("VK", "USER"): VK_USER_QUEUE_NAME,
+}
+
+QUEUE_BY_PLATFORM_AND_CHANNEL = {
+    ("TG", ADMIN_CHANNEL): TG_ADMIN_QUEUE_NAME,
+    ("VK", ADMIN_CHANNEL): VK_ADMIN_QUEUE_NAME,
+    ("TG", USER_CHANNEL): TG_USER_QUEUE_NAME,
+    ("VK", USER_CHANNEL): VK_USER_QUEUE_NAME,
 }
 
 
@@ -74,6 +83,13 @@ def buildQueueByPlatformAndRole(queue_prefix: str) -> dict[tuple[str, str], str]
         for key, baseQueueName in QUEUE_BY_PLATFORM_AND_ROLE.items()
     }
 
+
+def buildQueueByPlatformAndChannel(queue_prefix: str) -> dict[tuple[str, str], str]:
+    return {
+        key: makeQueueName(baseQueueName, queue_prefix)
+        for key, baseQueueName in QUEUE_BY_PLATFORM_AND_CHANNEL.items()
+    }
+
 ADAPTER_BY_PLATFORM_AND_ROLE = {
     ("TG", "ADMIN"): "telegram_admin",
     ("TG", "SUPER_ADMIN"): "telegram_admin",
@@ -81,4 +97,11 @@ ADAPTER_BY_PLATFORM_AND_ROLE = {
     ("VK", "SUPER_ADMIN"): "vk_admin",
     ("TG", "USER"): "telegram_user",
     ("VK", "USER"): "vk_user",
+}
+
+ADAPTER_BY_PLATFORM_AND_CHANNEL = {
+    ("TG", ADMIN_CHANNEL): "telegram_admin",
+    ("VK", ADMIN_CHANNEL): "vk_admin",
+    ("TG", USER_CHANNEL): "telegram_user",
+    ("VK", USER_CHANNEL): "vk_user",
 }

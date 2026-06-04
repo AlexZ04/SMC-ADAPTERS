@@ -49,6 +49,7 @@ class KeyboardElement:
 class DistributionReceiver:
     platform: str
     role: str
+    channel: str
     receiver_id: str
     inline_elements: list[list[KeyboardElement]] = field(default_factory=list)
     reply_elements: list[list[KeyboardElement]] = field(default_factory=list)
@@ -299,9 +300,10 @@ def parseDistributionReceivers(receivers: Any, fallbackRole: str | None = None) 
             or fallbackRole
             or ""
         ).upper()
+        channel = parseReceiverChannel(receiver, role)
         receiversIds = parseReceiversIds(receiver)
 
-        if not platform or not role or not receiversIds:
+        if not platform or not role or not channel or not receiversIds:
             continue
 
         for receiverId in receiversIds:
@@ -309,6 +311,7 @@ def parseDistributionReceivers(receivers: Any, fallbackRole: str | None = None) 
                 DistributionReceiver(
                     platform=platform,
                     role=role,
+                    channel=channel,
                     receiver_id=receiverId,
                     inline_elements=parseKeyboard(receiver.get("inlineElements") or []),
                     reply_elements=parseKeyboard(receiver.get("replyElements") or []),
@@ -316,6 +319,26 @@ def parseDistributionReceivers(receivers: Any, fallbackRole: str | None = None) 
             )
 
     return result
+
+
+def parseReceiverChannel(receiver: dict[str, Any], role: str) -> str:
+    channel = (
+        receiver.get("channel")
+        or receiver.get("receiverChannel")
+        or receiver.get("recipientChannel")
+        or receiver.get("userChannel")
+    )
+
+    if channel is not None and str(channel):
+        return str(channel).strip().lower()
+
+    if role in {"ADMIN", "SUPER_ADMIN"}:
+        return "admin-channel"
+
+    if role == "USER":
+        return "user-channel"
+
+    return ""
 
 
 def parseReceiversIds(receiver: dict[str, Any]) -> list[str]:

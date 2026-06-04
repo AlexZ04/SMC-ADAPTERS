@@ -4,8 +4,11 @@ import time
 
 from SMK_ADAPTERS.common.config import loadSecretFile
 from SMK_ADAPTERS.common.constants import (
-    ADAPTER_BY_PLATFORM_AND_ROLE,
+    ADAPTER_BY_PLATFORM_AND_CHANNEL,
+    ADMIN_CHANNEL,
     REPLY_KEYBOARD_HELP_TEXT,
+    USER_ROLE,
+    buildQueueByPlatformAndChannel,
     buildQueueByPlatformAndRole,
 )
 from SMK_ADAPTERS.common.http_client import SmcApiClient
@@ -31,6 +34,7 @@ consumerBus: RabbitMqBus | None = None
 longPoll: NewLongPoll | None = None
 adminQueueName: str = "smc_tg_admin_panel"
 queueByPlatformAndRole: dict[tuple[str, str], str] = {}
+queueByPlatformAndChannel: dict[tuple[str, str], str] = {}
 
 
 def getStarted():
@@ -43,10 +47,12 @@ def getStarted():
     global longPoll
     global adminQueueName
     global queueByPlatformAndRole
+    global queueByPlatformAndChannel
 
     settings = loadSettings()
     token = loadSecretFile(settings.telegram.token_file)
     queueByPlatformAndRole = buildQueueByPlatformAndRole(settings.common.deployment.queue_prefix)
+    queueByPlatformAndChannel = buildQueueByPlatformAndChannel(settings.common.deployment.queue_prefix)
     adminQueueName = queueByPlatformAndRole[("TG", "ADMIN")]
 
     telegramRuntime = TelegramAsyncRuntime()
@@ -140,6 +146,7 @@ def publishDistributionMessages(response, triggerUser: TriggerUser | None = None
                 "distribution": True,
                 "platform": receiver.platform,
                 "role": receiver.role,
+                "channel": receiver.channel,
             },
         )
         LOGGER.debug(
@@ -156,6 +163,9 @@ def shouldSkipDistributionReceiver(response, receiver: DistributionReceiver) -> 
     if response.distribution is None:
         return False
 
+    if receiver.role == USER_ROLE and receiver.channel == ADMIN_CHANNEL:
+        return True
+
     if response.distribution.send_to_himself:
         return False
 
@@ -163,11 +173,11 @@ def shouldSkipDistributionReceiver(response, receiver: DistributionReceiver) -> 
 
 
 def getDistributionQueueName(receiver: DistributionReceiver) -> str | None:
-    return queueByPlatformAndRole.get((receiver.platform, receiver.role))
+    return queueByPlatformAndChannel.get((receiver.platform, receiver.channel))
 
 
 def getDistributionAdapterName(receiver: DistributionReceiver) -> str | None:
-    return ADAPTER_BY_PLATFORM_AND_ROLE.get((receiver.platform, receiver.role))
+    return ADAPTER_BY_PLATFORM_AND_CHANNEL.get((receiver.platform, receiver.channel))
 
 
 def resolveUserMacro(platform: str, userId: str, triggerUser: TriggerUser | None = None) -> TriggerUser | None:

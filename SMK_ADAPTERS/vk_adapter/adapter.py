@@ -5,6 +5,10 @@ import time
 from SMK_ADAPTERS.common.config import loadSecretFile
 from SMK_ADAPTERS.common.constants import (
     ADAPTER_BY_PLATFORM_AND_ROLE,
+    ADAPTER_BY_PLATFORM_AND_CHANNEL,
+    ADMIN_CHANNEL,
+    USER_ROLE,
+    buildQueueByPlatformAndChannel,
     buildQueueByPlatformAndRole,
 )
 from SMK_ADAPTERS.common.http_client import SmcApiClient
@@ -30,6 +34,7 @@ publisherBus: RabbitMqBus | None = None
 consumerBus: RabbitMqBus | None = None
 longPoll: NewLongPoll | None = None
 queueByPlatformAndRole: dict[tuple[str, str], str] = {}
+queueByPlatformAndChannel: dict[tuple[str, str], str] = {}
 
 
 def getStarted():
@@ -43,12 +48,14 @@ def getStarted():
     global consumerBus
     global longPoll
     global queueByPlatformAndRole
+    global queueByPlatformAndChannel
 
     settings = loadSettings()
     token = loadSecretFile(settings.vk.token_file)
     adapterRole = normalizeRole(settings.vk.adapter_role)
     adapterName = ADAPTER_BY_PLATFORM_AND_ROLE[("VK", adapterRole)]
     queueByPlatformAndRole = buildQueueByPlatformAndRole(settings.common.deployment.queue_prefix)
+    queueByPlatformAndChannel = buildQueueByPlatformAndChannel(settings.common.deployment.queue_prefix)
     queueName = queueByPlatformAndRole[("VK", adapterRole)]
 
     vkClient = VkBotClient(token=token)
@@ -112,13 +119,13 @@ def publishDistributionMessages(response, triggerUser: TriggerUser | None = None
             )
             continue
 
-        queueNameForReceiver = queueByPlatformAndRole.get((receiver.platform, receiver.role))
-        adapterNameForReceiver = ADAPTER_BY_PLATFORM_AND_ROLE.get((receiver.platform, receiver.role))
+        queueNameForReceiver = queueByPlatformAndChannel.get((receiver.platform, receiver.channel))
+        adapterNameForReceiver = ADAPTER_BY_PLATFORM_AND_CHANNEL.get((receiver.platform, receiver.channel))
         if queueNameForReceiver is None or adapterNameForReceiver is None:
             LOGGER.warning(
-                "Получатель рассылки пропущен: неизвестная связка platform=%s, role=%s",
+                "Получатель рассылки пропущен: неизвестная связка platform=%s, channel=%s",
                 receiver.platform,
-                receiver.role,
+                receiver.channel,
             )
             continue
 
@@ -134,6 +141,7 @@ def publishDistributionMessages(response, triggerUser: TriggerUser | None = None
                 "distribution": True,
                 "platform": receiver.platform,
                 "role": receiver.role,
+                "channel": receiver.channel,
             },
         )
         publisherBus.publishJson(queueNameForReceiver, queueMessage.toDict())
@@ -142,6 +150,9 @@ def publishDistributionMessages(response, triggerUser: TriggerUser | None = None
 def shouldSkipDistributionReceiver(response, receiver) -> bool:
     if response.distribution is None:
         return False
+
+    if receiver.role == USER_ROLE and receiver.channel == ADMIN_CHANNEL:
+        return True
 
     if response.distribution.send_to_himself:
         return False
