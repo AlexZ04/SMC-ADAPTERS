@@ -35,7 +35,7 @@ def loadSettings() -> TelegramAdminSettings:
     config_values = loadConfigValues()
 
     return TelegramAdminSettings(
-        common=loadCommonSettings(default_admin_endpoint=DEFAULT_ADMIN_ENDPOINT, values=config_values),
+        common=loadCommonSettings(default_admin_endpoint=DEFAULT_ADMIN_ENDPOINT, platform="TG", values=config_values),
         telegram=TelegramSettings(
             token_file=Path(getSetting("TELEGRAM_ADMIN_TOKEN_FILE", config_values, str(DEFAULT_TOKEN_FILE))),
             poll_timeout_seconds=int(getSetting("TELEGRAM_POLL_TIMEOUT_SECONDS", config_values, "30")),

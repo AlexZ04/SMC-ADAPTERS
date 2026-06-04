@@ -43,7 +43,7 @@ jobs:
             cd "${DEPLOY_DIR}"
             git fetch origin master
             git checkout master
-            git pull --ff-only origin master
+            git reset --hard origin/master
             chmod +x deploy/install-systemd.sh
             ./deploy/install-systemd.sh
           EOF

@@ -1,6 +1,5 @@
 import os
 from dataclasses import dataclass
-from dataclasses import replace
 from pathlib import Path
 
 from SMK_ADAPTERS.common.config import CommonSettings, PROJECT_ROOT, loadCommonSettings
@@ -36,8 +35,7 @@ def loadSettings() -> VkAdapterSettings:
     adapterRole = getSetting("VK_ADAPTER_ROLE", configValues, "USER").upper()
     defaultEndpoint = DEFAULT_ADMIN_ENDPOINT if adapterRole in {"ADMIN", "SUPER_ADMIN"} else "/api/v1/user"
 
-    commonSettings = loadCommonSettings(default_admin_endpoint=defaultEndpoint, values=configValues)
-    commonSettings = replace(commonSettings, api=replace(commonSettings.api, platform="VK"))
+    commonSettings = loadCommonSettings(default_admin_endpoint=defaultEndpoint, platform="VK", values=configValues)
 
     return VkAdapterSettings(
         common=commonSettings,

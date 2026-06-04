@@ -38,7 +38,11 @@ class CommonSettings:
     deployment: DeploymentConfig
 
 
-def loadCommonSettings(default_admin_endpoint: str, values: dict[str, str] | None = None) -> CommonSettings:
+def loadCommonSettings(
+    default_admin_endpoint: str,
+    platform: str,
+    values: dict[str, str] | None = None,
+) -> CommonSettings:
     config_values = values or {}
     base_url = requireServerUrl(getSetting("SMC_API_BASE_URL", config_values))
 
@@ -49,7 +53,7 @@ def loadCommonSettings(default_admin_endpoint: str, values: dict[str, str] | Non
                 getSetting("SMC_API_ADMIN_ENDPOINT", config_values, default_admin_endpoint)
             ),
             user_endpoint=getSetting("SMC_API_USER_ENDPOINT", config_values, "/api/v1/user"),
-            platform=getSetting("SMC_API_PLATFORM", config_values, "TG"),
+            platform=platform,
             api_key=getApiKey(config_values),
             timeout_seconds=float(getSetting("SMC_API_TIMEOUT_SECONDS", config_values, "10")),
         ),
