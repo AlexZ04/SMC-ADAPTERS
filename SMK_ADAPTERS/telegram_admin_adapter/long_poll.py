@@ -41,6 +41,7 @@ class NewLongPoll:
                     self.client.bot,
                     polling_timeout=self.pollTimeoutSeconds,
                     allowed_updates=["message", "callback_query"],
+                    handle_signals=False,
                 )
             except RuntimeError as exc:
                 LOGGER.warning("%s. Следующая попытка через %s сек.", exc, self.retryDelaySeconds)

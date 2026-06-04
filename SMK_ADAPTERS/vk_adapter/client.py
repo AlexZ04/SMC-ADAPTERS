@@ -200,16 +200,10 @@ class VkBotClient:
     def addKeyboardButton(self, keyboard: VkKeyboard, element: KeyboardElement) -> None:
         label = self.makeButtonLabel(element.text)
         if element.link:
-            self.addOpenLinkButton(keyboard, label, element.link, self.getButtonColor(element))
+            keyboard.add_openlink_button(label=label, link=element.link)
             return
 
         keyboard.add_button(label, color=self.getButtonColor(element))
-
-    def addOpenLinkButton(self, keyboard: VkKeyboard, label: str, link: str, color: VkKeyboardColor) -> None:
-        keyboard.add_openlink_button(label=label, link=link)
-        currentLine = keyboard.lines[-1]
-        if currentLine:
-            currentLine[-1]["color"] = color.value
 
     def makeButtonLabel(self, text: str) -> str:
         if len(text) <= VK_BUTTON_LABEL_MAX_LENGTH:
