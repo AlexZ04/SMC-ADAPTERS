@@ -9,6 +9,7 @@ CONFIG_FILE="$APP_DIR/SMK_ADAPTERS/config/settings.env"
 COMMON_SECRET_DIR="$APP_DIR/SMK_ADAPTERS/config/secrets"
 TG_SECRET_DIR="$APP_DIR/SMK_ADAPTERS/telegram_admin_adapter/config/secrets"
 VK_SECRET_DIR="$APP_DIR/SMK_ADAPTERS/vk_adapter/config/secrets"
+VK_ADMIN_SECRET_DIR="$APP_DIR/SMK_ADAPTERS/vk_admin_adapter/config/secrets"
 
 require_command() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -119,6 +120,7 @@ print_secret_hints() {
   echo "  $COMMON_SECRET_DIR/smc_api_key.txt"
   echo "  $TG_SECRET_DIR/telegram_admin_bot_token.txt"
   echo "  $VK_SECRET_DIR/vk_bot_token.txt"
+  echo "  $VK_ADMIN_SECRET_DIR/vk_admin_bot_token.txt"
 }
 
 validate_required_files() {
@@ -128,6 +130,7 @@ validate_required_files() {
     "$COMMON_SECRET_DIR/smc_api_key.txt"
     "$TG_SECRET_DIR/telegram_admin_bot_token.txt"
     "$VK_SECRET_DIR/vk_bot_token.txt"
+    "$VK_ADMIN_SECRET_DIR/vk_admin_bot_token.txt"
   )
 
   for file_path in "${required_files[@]}"; do
@@ -148,7 +151,7 @@ main() {
   install_os_packages
   require_command "$PYTHON_BIN"
 
-  mkdir -p "$COMMON_SECRET_DIR" "$TG_SECRET_DIR" "$VK_SECRET_DIR"
+  mkdir -p "$COMMON_SECRET_DIR" "$TG_SECRET_DIR" "$VK_SECRET_DIR" "$VK_ADMIN_SECRET_DIR"
   create_config_template
   validate_required_files
   start_rabbitmq
@@ -160,12 +163,14 @@ main() {
   "$VENV_DIR/bin/python" -m compileall "$APP_DIR/SMK_ADAPTERS"
 
   write_service "smc-telegram-admin-adapter" "SMK_ADAPTERS.telegram_admin_adapter"
-  write_service "smc-vk-adapter" "SMK_ADAPTERS.vk_adapter"
+  write_service "smc-vk-user-adapter" "SMK_ADAPTERS.vk_adapter"
+  write_service "smc-vk-admin-adapter" "SMK_ADAPTERS.vk_admin_adapter"
 
   sudo systemctl daemon-reload
-  sudo systemctl enable smc-telegram-admin-adapter.service smc-vk-adapter.service
-  sudo systemctl restart smc-telegram-admin-adapter.service smc-vk-adapter.service
-  sudo systemctl --no-pager --full status smc-telegram-admin-adapter.service smc-vk-adapter.service || true
+  sudo systemctl disable --now smc-vk-adapter.service >/dev/null 2>&1 || true
+  sudo systemctl enable smc-telegram-admin-adapter.service smc-vk-user-adapter.service smc-vk-admin-adapter.service
+  sudo systemctl restart smc-telegram-admin-adapter.service smc-vk-user-adapter.service smc-vk-admin-adapter.service
+  sudo systemctl --no-pager --full status smc-telegram-admin-adapter.service smc-vk-user-adapter.service smc-vk-admin-adapter.service || true
 
   print_secret_hints
 }

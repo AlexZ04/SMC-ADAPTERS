@@ -5,10 +5,7 @@ import time
 from SMK_ADAPTERS.common.config import loadSecretFile
 from SMK_ADAPTERS.common.constants import (
     ADAPTER_BY_PLATFORM_AND_ROLE,
-    VK_ADMIN_QUEUE_NAME,
-    VK_USER_QUEUE_NAME,
     buildQueueByPlatformAndRole,
-    makeQueueName,
 )
 from SMK_ADAPTERS.common.http_client import SmcApiClient
 from SMK_ADAPTERS.common.macros import TriggerUser, buildVkTriggerUser, replaceUserMacros
@@ -25,20 +22,14 @@ LOGGER = logging.getLogger(__name__)
 adapterName: str = "vk_user"
 queueName: str = "smc_vk_user"
 adapterRole: str = "USER"
-VK_QUEUE_DEFAULT_ADAPTERS = {
-    VK_USER_QUEUE_NAME: "vk_user",
-    VK_ADMIN_QUEUE_NAME: "vk_admin",
-}
-VK_SUPPORTED_ADAPTERS = set(VK_QUEUE_DEFAULT_ADAPTERS.values())
 
 apiClient: SmcApiClient | None = None
 messageParser: BackendResponseParser | None = None
 vkClient: VkBotClient | None = None
 publisherBus: RabbitMqBus | None = None
-consumerBuses: dict[str, RabbitMqBus] = {}
+consumerBus: RabbitMqBus | None = None
 longPoll: NewLongPoll | None = None
 queueByPlatformAndRole: dict[tuple[str, str], str] = {}
-vkQueueDefaultAdapters: dict[str, str] = {}
 
 
 def getStarted():
@@ -49,10 +40,9 @@ def getStarted():
     global messageParser
     global vkClient
     global publisherBus
-    global consumerBuses
+    global consumerBus
     global longPoll
     global queueByPlatformAndRole
-    global vkQueueDefaultAdapters
 
     settings = loadSettings()
     token = loadSecretFile(settings.vk.token_file)
@@ -60,19 +50,12 @@ def getStarted():
     adapterName = ADAPTER_BY_PLATFORM_AND_ROLE[("VK", adapterRole)]
     queueByPlatformAndRole = buildQueueByPlatformAndRole(settings.common.deployment.queue_prefix)
     queueName = queueByPlatformAndRole[("VK", adapterRole)]
-    vkQueueDefaultAdapters = {
-        makeQueueName(baseQueueName, settings.common.deployment.queue_prefix): defaultAdapter
-        for baseQueueName, defaultAdapter in VK_QUEUE_DEFAULT_ADAPTERS.items()
-    }
 
     vkClient = VkBotClient(token=token)
     apiClient = SmcApiClient(settings.common.api)
     messageParser = BackendResponseParser()
     publisherBus = RabbitMqBus(settings.common.rabbit)
-    consumerBuses = {
-        queueNameForListening: RabbitMqBus(settings.common.rabbit)
-        for queueNameForListening in vkQueueDefaultAdapters
-    }
+    consumerBus = RabbitMqBus(settings.common.rabbit)
     longPoll = NewLongPoll(client=vkClient, adapter_name=adapterName)
 
 
@@ -166,14 +149,14 @@ def shouldSkipDistributionReceiver(response, receiver) -> bool:
     return response.recipient_id == receiver.receiver_id
 
 
-def handleQueueMessage(payload: dict, defaultAdapter: str):
+def handleQueueMessage(payload: dict):
     if vkClient is None:
         raise RuntimeError("Адаптер не был запущен через getStarted")
 
     LOGGER.debug("Получено сообщение из RabbitMQ: %s", payload)
 
-    message = QueueMessage.fromDict(payload, default_adapter=defaultAdapter)
-    if message.adapter not in VK_SUPPORTED_ADAPTERS:
+    message = QueueMessage.fromDict(payload, default_adapter=adapterName)
+    if message.adapter != adapterName:
         LOGGER.debug("Сообщение очереди пропущено: оно предназначено для адаптера %s", message.adapter)
         return
 
@@ -259,16 +242,16 @@ def detectImageExtension(content: bytes) -> str:
     return "bin"
 
 
-def startRabbitListening(queueNameForListening: str, defaultAdapter: str, bus: RabbitMqBus):
+def startRabbitListening():
+    if consumerBus is None:
+        raise RuntimeError("Адаптер не был запущен через getStarted")
+
     while True:
         try:
-            bus.reconnectForever()
-            bus.consumeJson(
-                queueNameForListening,
-                lambda payload: handleQueueMessage(payload, defaultAdapter),
-            )
+            consumerBus.reconnectForever()
+            consumerBus.consumeJson(queueName, handleQueueMessage)
         except Exception:
-            LOGGER.exception("Цикл чтения из RabbitMQ завершился ошибкой: queue=%s", queueNameForListening)
+            LOGGER.exception("Цикл чтения из RabbitMQ завершился ошибкой: queue=%s", queueName)
             time.sleep(5)
 
 
@@ -280,23 +263,17 @@ def startVkListening():
 
 
 def runAdapter():
-    rabbitThreads = [
-        threading.Thread(
-            target=startRabbitListening,
-            args=(queueNameForListening, defaultAdapter, consumerBuses[queueNameForListening]),
-            name=f"vk-rabbit-consumer-{defaultAdapter}",
-            daemon=True,
-        )
-        for queueNameForListening, defaultAdapter in vkQueueDefaultAdapters.items()
-    ]
+    rabbitThread = threading.Thread(
+        target=startRabbitListening,
+        name=f"vk-rabbit-consumer-{adapterName}",
+        daemon=True,
+    )
     vkThread = threading.Thread(target=startVkListening, name="vk-long-poll", daemon=True)
 
-    for rabbitThread in rabbitThreads:
-        rabbitThread.start()
-
+    rabbitThread.start()
     vkThread.start()
 
-    while vkThread.is_alive() and all(rabbitThread.is_alive() for rabbitThread in rabbitThreads):
+    while vkThread.is_alive() and rabbitThread.is_alive():
         time.sleep(1)
 
 

@@ -2,7 +2,7 @@
 
 Workflow: `.github/workflows/deploy.yml`
 
-Запускается при push в `main` и вручную через `workflow_dispatch`.
+Запускается при push в `master` и вручную через `workflow_dispatch`.
 
 ## GitHub Secrets
 
@@ -27,7 +27,8 @@ Workflow: `.github/workflows/deploy.yml`
 Скрипт `deploy/install-systemd.sh` создает venv, ставит зависимости и регистрирует сервисы:
 
 - `smc-telegram-admin-adapter.service`
-- `smc-vk-adapter.service`
+- `smc-vk-user-adapter.service`
+- `smc-vk-admin-adapter.service`
 
 Оба сервиса запускаются через systemd с `Restart=always`.
 
@@ -80,6 +81,38 @@ TELEGRAM_PROXY_URL=http://user:password@host:port
 /home/${VPS_USER}/smc-adapters/SMK_ADAPTERS/config/secrets/smc_api_key.txt
 /home/${VPS_USER}/smc-adapters/SMK_ADAPTERS/telegram_admin_adapter/config/secrets/telegram_admin_bot_token.txt
 /home/${VPS_USER}/smc-adapters/SMK_ADAPTERS/vk_adapter/config/secrets/vk_bot_token.txt
+/home/${VPS_USER}/smc-adapters/SMK_ADAPTERS/vk_admin_adapter/config/secrets/vk_admin_bot_token.txt
 ```
 
 Workflow эти значения не получает и не хранит.
+
+## Обновление конфига на сервере
+
+Откройте общий конфиг:
+
+```bash
+nano ~/smc-adapters/SMK_ADAPTERS/config/settings.env
+```
+
+Текущий VK user adapter всегда работает как пользовательский. VK admin adapter запускается отдельным сервисом и принудительно использует роль `ADMIN`, поэтому `VK_ADAPTER_ROLE` в общем конфиге больше не нужен.
+
+Если нужно явно переопределить пути к токенам:
+
+```env
+VK_BOT_TOKEN_FILE=/home/deploy/smc-adapters/SMK_ADAPTERS/vk_adapter/config/secrets/vk_bot_token.txt
+VK_ADMIN_BOT_TOKEN_FILE=/home/deploy/smc-adapters/SMK_ADAPTERS/vk_admin_adapter/config/secrets/vk_admin_bot_token.txt
+```
+
+После изменения конфига перезапустите нужный сервис:
+
+```bash
+sudo systemctl restart smc-vk-user-adapter
+sudo systemctl restart smc-vk-admin-adapter
+```
+
+Логи:
+
+```bash
+sudo journalctl -u smc-vk-user-adapter -f
+sudo journalctl -u smc-vk-admin-adapter -f
+```

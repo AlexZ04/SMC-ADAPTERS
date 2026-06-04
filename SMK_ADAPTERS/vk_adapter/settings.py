@@ -9,6 +9,14 @@ from SMK_ADAPTERS.telegram_admin_adapter.settings import loadConfigValues
 
 
 DEFAULT_TOKEN_FILE = PROJECT_ROOT / "SMK_ADAPTERS" / "vk_adapter" / "config" / "secrets" / "vk_bot_token.txt"
+DEFAULT_ADMIN_TOKEN_FILE = (
+    PROJECT_ROOT
+    / "SMK_ADAPTERS"
+    / "vk_admin_adapter"
+    / "config"
+    / "secrets"
+    / "vk_admin_bot_token.txt"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,7 +42,7 @@ def loadSettings() -> VkAdapterSettings:
     return VkAdapterSettings(
         common=commonSettings,
         vk=VkSettings(
-            token_file=Path(getSetting("VK_BOT_TOKEN_FILE", configValues, str(DEFAULT_TOKEN_FILE))),
+            token_file=getTokenFile(adapterRole, configValues),
             adapter_role=adapterRole,
         ),
     )
@@ -42,3 +50,10 @@ def loadSettings() -> VkAdapterSettings:
 
 def getSetting(name: str, values: dict[str, str], default: str) -> str:
     return os.getenv(name) or values.get(name) or default
+
+
+def getTokenFile(adapterRole: str, values: dict[str, str]) -> Path:
+    if adapterRole in {"ADMIN", "SUPER_ADMIN"}:
+        return Path(getSetting("VK_ADMIN_BOT_TOKEN_FILE", values, str(DEFAULT_ADMIN_TOKEN_FILE)))
+
+    return Path(getSetting("VK_BOT_TOKEN_FILE", values, str(DEFAULT_TOKEN_FILE)))
