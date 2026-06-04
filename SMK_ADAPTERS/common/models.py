@@ -65,6 +65,18 @@ class DistributionMessage:
 
 
 @dataclass(frozen=True, slots=True)
+class PreviewMessage:
+    response_text: str
+    inline_elements: list[list[KeyboardElement]] = field(default_factory=list)
+
+    def toDict(self) -> dict[str, Any]:
+        return {
+            "responseText": self.response_text,
+            "inlineElements": keyboardToDict(self.inline_elements),
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class IncomingMessage:
     adapter: str
     channel: str
@@ -90,7 +102,7 @@ class BackendResponse:
     text: str
     platform: str | None = None
     role: str | None = None
-    preview_messages: list[str] = field(default_factory=list)
+    preview_messages: list[PreviewMessage] = field(default_factory=list)
     files_ids: list[str] = field(default_factory=list)
     inline_elements: list[list[KeyboardElement]] = field(default_factory=list)
     reply_elements: list[list[KeyboardElement]] = field(default_factory=list)
@@ -151,7 +163,7 @@ class QueueMessage:
     recipient_id: str
     text: str
     adapter: str
-    preview_messages: list[str] = field(default_factory=list)
+    preview_messages: list[PreviewMessage] = field(default_factory=list)
     files_ids: list[str] = field(default_factory=list)
     inline_elements: list[list[KeyboardElement]] = field(default_factory=list)
     reply_elements: list[list[KeyboardElement]] = field(default_factory=list)
@@ -163,7 +175,7 @@ class QueueMessage:
             "recipientId": self.recipient_id,
             "text": self.text,
             "adapter": self.adapter,
-            "previewMessages": self.preview_messages,
+            "previewMessages": [message.toDict() for message in self.preview_messages],
             "filesIds": self.files_ids,
             "inlineElements": keyboardToDict(self.inline_elements),
             "replyElements": keyboardToDict(self.reply_elements),
@@ -176,7 +188,7 @@ class QueueMessage:
         recipient_id: str,
         text: str,
         adapter: str,
-        preview_messages: list[str] | None = None,
+        preview_messages: list[PreviewMessage] | None = None,
         files_ids: list[str] | None = None,
         inline_elements: list[list[KeyboardElement]] | None = None,
         reply_elements: list[list[KeyboardElement]] | None = None,
@@ -360,18 +372,30 @@ def parseReceiversIds(receiver: dict[str, Any]) -> list[str]:
     return [str(value)]
 
 
-def parsePreviewMessages(messages: list) -> list[str]:
+def parsePreviewMessages(messages: list) -> list[PreviewMessage]:
     if not isinstance(messages, list):
         return []
 
-    result: list[str] = []
+    result: list[PreviewMessage] = []
 
     for message in messages:
-        text = parsePreviewMessageText(message)
-        if text:
-            result.append(text)
+        previewMessage = parsePreviewMessage(message)
+        if previewMessage is not None:
+            result.append(previewMessage)
 
     return result
+
+
+def parsePreviewMessage(message: Any) -> PreviewMessage | None:
+    text = parsePreviewMessageText(message)
+    if not text:
+        return None
+
+    inlineElements = []
+    if isinstance(message, dict):
+        inlineElements = parseKeyboard(message.get("inlineElements") or message.get("inline_elements") or [])
+
+    return PreviewMessage(response_text=text, inline_elements=inlineElements)
 
 
 def parsePreviewMessageText(message: Any) -> str:

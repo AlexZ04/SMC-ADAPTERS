@@ -1,5 +1,5 @@
 from SMK_ADAPTERS.common.macros import MacroResolver, TriggerUser, replaceUserMacros
-from SMK_ADAPTERS.common.models import BackendResponse, QueueMessage
+from SMK_ADAPTERS.common.models import BackendResponse, PreviewMessage, QueueMessage
 
 
 class BackendResponseParser:
@@ -18,7 +18,10 @@ class BackendResponseParser:
             text=self.transformText(response.text, trigger_user, macro_resolver),
             adapter=adapter_name,
             preview_messages=[
-                self.transformText(message, trigger_user, macro_resolver)
+                PreviewMessage(
+                    response_text=self.transformText(message.response_text, trigger_user, macro_resolver),
+                    inline_elements=message.inline_elements,
+                )
                 for message in response.preview_messages
             ],
             files_ids=response.files_ids,

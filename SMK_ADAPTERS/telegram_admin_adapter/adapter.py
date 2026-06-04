@@ -13,7 +13,7 @@ from SMK_ADAPTERS.common.constants import (
 )
 from SMK_ADAPTERS.common.http_client import SmcApiClient
 from SMK_ADAPTERS.common.macros import TriggerUser, buildTelegramTriggerUser, replaceUserMacros
-from SMK_ADAPTERS.common.models import DistributionReceiver, IncomingMessage, QueueMessage
+from SMK_ADAPTERS.common.models import DistributionReceiver, IncomingMessage, PreviewMessage, QueueMessage
 from SMK_ADAPTERS.common.parsers import BackendResponseParser
 from SMK_ADAPTERS.common.rabbit import RabbitMqBus
 from SMK_ADAPTERS.telegram_admin_adapter.async_runtime import TelegramAsyncRuntime
@@ -220,15 +220,11 @@ def sendQueueMessageToTelegram(message: QueueMessage):
 
     hasInlineKeyboard = bool(message.inline_elements)
     hasReplyKeyboard = bool(message.reply_elements)
-    previewMessages = [
-        replaceUserMacros(previewMessage, None, resolveUserMacro)
-        for previewMessage in message.preview_messages
-    ]
     filesIds = list(message.files_ids)
     text = replaceUserMacros(message.text, None, resolveUserMacro)
 
     if hasInlineKeyboard and hasReplyKeyboard:
-        sendPreviewMessages(message.recipient_id, previewMessages)
+        sendPreviewMessages(message.recipient_id, message.preview_messages)
         if filesIds:
             sendFilesWithTargetMessage(
                 recipientId=message.recipient_id,
@@ -249,7 +245,7 @@ def sendQueueMessageToTelegram(message: QueueMessage):
         )
         return
 
-    sendPreviewMessages(message.recipient_id, previewMessages)
+    sendPreviewMessages(message.recipient_id, message.preview_messages)
     if filesIds:
         sendFilesWithTargetMessage(
             recipientId=message.recipient_id,
@@ -268,14 +264,15 @@ def sendQueueMessageToTelegram(message: QueueMessage):
     )
 
 
-def sendPreviewMessages(recipientId: str, previewMessages: list[str]):
+def sendPreviewMessages(recipientId: str, previewMessages: list[PreviewMessage]):
     if telegramClient is None:
         raise RuntimeError("Адаптер не был запущен через getStarted")
 
     for previewMessage in previewMessages:
         telegramClient.sendMessage(
             chat_id=recipientId,
-            text=previewMessage,
+            text=replaceUserMacros(previewMessage.response_text, None, resolveUserMacro),
+            inline_elements=previewMessage.inline_elements,
         )
 
 

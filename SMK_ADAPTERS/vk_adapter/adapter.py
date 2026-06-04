@@ -187,8 +187,12 @@ def sendQueueMessageToVk(message: QueueMessage):
         raise RuntimeError("Адаптер не был запущен через getStarted")
 
     for previewMessage in message.preview_messages:
-        previewMessage = replaceUserMacros(previewMessage, None, resolveUserMacro)
-        vkClient.sendMessage(chat_id=message.recipient_id, text=previewMessage)
+        previewText = replaceUserMacros(previewMessage.response_text, None, resolveUserMacro)
+        vkClient.sendMessage(
+            chat_id=message.recipient_id,
+            text=previewText,
+            inline_elements=previewMessage.inline_elements,
+        )
 
     text = replaceUserMacros(message.text, None, resolveUserMacro)
 
