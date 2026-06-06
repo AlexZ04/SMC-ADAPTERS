@@ -105,10 +105,16 @@ class VkBotClient:
 
         try:
             if filesForUpload:
-                uploadedPhotos = self.upload.photo_messages(
-                    photos=[path for _, _, path in filesForUpload],
-                    peer_id=int(chat_id),
-                )
+                try:
+                    uploadedPhotos = self.upload.photo_messages(
+                        photos=[path for _, _, path in filesForUpload],
+                        peer_id=int(chat_id),
+                    )
+                except Exception as exc:
+                    raise VkApiError(
+                        f"Запрос к VK API завершился ошибкой при загрузке фотографий: {exc}",
+                        error_code=self.extractErrorCode(exc),
+                    ) from exc
                 if len(uploadedPhotos) != len(filesForUpload):
                     raise VkApiError(
                         f"VK вернул некорректное количество загруженных фотографий: "
@@ -256,9 +262,12 @@ class VkBotClient:
             while len(self._user_profile_cache) > USER_PROFILE_CACHE_MAX_ITEMS:
                 self._user_profile_cache.popitem(last=False)
 
+    def extractErrorCode(self, exc: Exception) -> int | None:
+        return getattr(exc, "code", None) or getattr(exc, "error_code", None)
+
     def request(self, method: str, payload: dict[str, Any]) -> Any:
         try:
             return self.authorize.method(method, payload)
         except Exception as exc:
-            errorCode = getattr(exc, "code", None) or getattr(exc, "error_code", None)
+            errorCode = self.extractErrorCode(exc)
             raise VkApiError(f"Запрос к VK API завершился ошибкой: {exc}", error_code=errorCode) from exc

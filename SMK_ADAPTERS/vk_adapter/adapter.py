@@ -23,6 +23,7 @@ from SMK_ADAPTERS.vk_adapter.settings import loadSettings
 
 
 LOGGER = logging.getLogger(__name__)
+VK_NON_RETRYABLE_ERROR_CODES = {901, 911}
 
 adapterName: str = "vk_user"
 queueName: str = "smc_vk_user"
@@ -193,7 +194,7 @@ def handleQueueMessage(payload: dict):
     try:
         sendQueueMessageToVk(message)
     except VkApiError as exc:
-        if exc.error_code == 911:
+        if exc.error_code in VK_NON_RETRYABLE_ERROR_CODES:
             LOGGER.error("VK отклонил сообщение без возможности повтора: %s", exc)
             return
 

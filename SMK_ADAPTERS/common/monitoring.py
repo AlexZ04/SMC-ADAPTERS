@@ -125,8 +125,6 @@ class MonitoringLogHandler(logging.Handler):
             return
 
         message = self.format(record)
-        if record.exc_info:
-            message = f"{message}\n{self.formatter.formatException(record.exc_info) if self.formatter else ''}"
         if shouldIgnoreLogMessage(message):
             return
 
