@@ -32,10 +32,21 @@ class DeploymentConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class MonitoringConfig:
+    enabled: bool
+    base_url: str
+    endpoint: str
+    api_key: str
+    timeout_seconds: float
+    queue_size: int
+
+
+@dataclass(frozen=True, slots=True)
 class CommonSettings:
     api: ApiConfig
     rabbit: RabbitConfig
     deployment: DeploymentConfig
+    monitoring: MonitoringConfig
 
 
 def loadCommonSettings(
@@ -64,12 +75,29 @@ def loadCommonSettings(
             prefetch_count=int(getSetting("RABBITMQ_PREFETCH_COUNT", config_values, "10")),
         ),
         deployment=loadDeploymentConfig(config_values),
+        monitoring=loadMonitoringConfig(config_values, base_url),
     )
 
 
 def loadDeploymentConfig(values: dict[str, str]) -> DeploymentConfig:
     environment = normalizeDeploymentEnvironment(getSetting("SMC_ADAPTER_ENVIRONMENT", values, "test"))
     return DeploymentConfig(environment=environment, queue_prefix=environment)
+
+
+def loadMonitoringConfig(values: dict[str, str], smc_api_base_url: str) -> MonitoringConfig:
+    enabled = getSetting("SMC_MONITORING_ENABLED", values, "true").strip().lower() not in {"0", "false", "no", "off"}
+    base_url = getSetting("SMC_MONITORING_BASE_URL", values, deriveMonitoringBaseUrl(smc_api_base_url))
+    endpoint = getSetting("SMC_MONITORING_ENDPOINT", values, "/api/v1/events")
+    api_key = getMonitoringApiKey(values)
+
+    return MonitoringConfig(
+        enabled=enabled,
+        base_url=requireServerUrl(base_url).rstrip("/"),
+        endpoint=endpoint,
+        api_key=api_key,
+        timeout_seconds=float(getSetting("SMC_MONITORING_TIMEOUT_SECONDS", values, "3")),
+        queue_size=int(getSetting("SMC_MONITORING_QUEUE_SIZE", values, "256")),
+    )
 
 
 def normalizeDeploymentEnvironment(value: str) -> str:
@@ -120,6 +148,40 @@ def getApiKey(values: dict[str, str]) -> str:
     )
 
     return loadSecretFile(key_file)
+
+
+def getMonitoringApiKey(values: dict[str, str]) -> str:
+    value = os.getenv("SMC_MONITORING_API_KEY") or values.get("SMC_MONITORING_API_KEY")
+    if value:
+        return value
+
+    key_file_value = os.getenv("SMC_MONITORING_API_KEY_FILE") or values.get("SMC_MONITORING_API_KEY_FILE")
+    if key_file_value:
+        return loadSecretFile(Path(key_file_value))
+
+    return getApiKey(values)
+
+
+def deriveMonitoringBaseUrl(smc_api_base_url: str) -> str:
+    parsed = urlparse(smc_api_base_url)
+    path = parsed.path.rstrip("/")
+    if path.endswith("/smc-api"):
+        path = f"{path[: -len('/smc-api')]}/smc-monitoring"
+    elif path == "/smc-api":
+        path = "/smc-monitoring"
+    else:
+        path = "/smc-monitoring"
+
+    return urlunparse(
+        (
+            parsed.scheme,
+            parsed.netloc,
+            path,
+            "",
+            "",
+            "",
+        )
+    )
 
 
 def requireServerUrl(value: str) -> str:

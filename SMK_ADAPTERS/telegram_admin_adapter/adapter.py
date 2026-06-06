@@ -14,6 +14,7 @@ from SMK_ADAPTERS.common.constants import (
 from SMK_ADAPTERS.common.http_client import SmcApiClient
 from SMK_ADAPTERS.common.macros import TriggerUser, buildTelegramTriggerUser, replaceUserMacros
 from SMK_ADAPTERS.common.models import DistributionReceiver, IncomingMessage, PreviewMessage, QueueMessage
+from SMK_ADAPTERS.common.monitoring import emitMonitoringEvent
 from SMK_ADAPTERS.common.parsers import BackendResponseParser
 from SMK_ADAPTERS.common.rabbit import RabbitMqBus
 from SMK_ADAPTERS.telegram_admin_adapter.async_runtime import TelegramAsyncRuntime
@@ -112,6 +113,8 @@ def publishDistributionMessages(response, triggerUser: TriggerUser | None = None
     if response.distribution is None:
         return
 
+    publishedCount = 0
+    unknownRouteCount = 0
     for receiver in response.distribution.receivers:
         if shouldSkipDistributionReceiver(response, receiver):
             LOGGER.debug(
@@ -123,6 +126,7 @@ def publishDistributionMessages(response, triggerUser: TriggerUser | None = None
         queueName = getDistributionQueueName(receiver)
         adapterName = getDistributionAdapterName(receiver)
         if queueName is None or adapterName is None:
+            unknownRouteCount += 1
             LOGGER.warning(
                 "Получатель рассылки пропущен: неизвестная связка platform=%s, role=%s",
                 receiver.platform,
@@ -157,6 +161,21 @@ def publishDistributionMessages(response, triggerUser: TriggerUser | None = None
             receiver.role,
         )
         publisherBus.publishJson(queueName, queueMessage.toDict())
+        publishedCount += 1
+
+    if publishedCount > 0:
+        emitMonitoringEvent(
+            "INFO",
+            f"Пользователь отправил рассылку: получателей={publishedCount}, файлов={len(response.distribution.files_ids)}",
+            triggerUser,
+        )
+
+    if unknownRouteCount > 0:
+        emitMonitoringEvent(
+            "WARN",
+            f"Рассылка частично пропущена: неизвестная связка platform+channel у получателей={unknownRouteCount}",
+            triggerUser,
+        )
 
 
 def shouldSkipDistributionReceiver(response, receiver: DistributionReceiver) -> bool:

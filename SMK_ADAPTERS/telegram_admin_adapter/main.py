@@ -4,8 +4,9 @@ import threading
 import time
 import os
 
+from SMK_ADAPTERS.common.monitoring import configureMonitoring
 from SMK_ADAPTERS.telegram_admin_adapter.adapter import getStarted, runAdapter
-from SMK_ADAPTERS.telegram_admin_adapter.settings import loadConfigValues
+from SMK_ADAPTERS.telegram_admin_adapter.settings import loadConfigValues, loadSettings
 
 
 LOGGER = logging.getLogger(__name__)
@@ -21,6 +22,7 @@ def main() -> None:
         format="%(asctime)s %(levelname)s [%(threadName)s] %(name)s: %(message)s",
     )
     logging.getLogger("pika").setLevel(logging.WARNING)
+    configureMonitoring(loadSettings().common.monitoring, "telegram-admin-adapter")
 
     stop_event = threading.Event()
 

@@ -56,6 +56,9 @@ RabbitMQ тоже поднимается этим же скриптом чере
 SMC_API_BASE_URL=http://91.227.18.176/smc-api
 SMC_API_ADMIN_ENDPOINT=/api/v1/admin
 SMC_API_USER_ENDPOINT=/api/v1/user
+SMC_MONITORING_ENABLED=true
+SMC_MONITORING_BASE_URL=http://91.227.18.176/smc-monitoring
+SMC_MONITORING_ENDPOINT=/api/v1/events
 SMC_ADAPTER_ENVIRONMENT=prod
 RABBITMQ_URL=amqp://guest:guest@127.0.0.1:5672/
 # TELEGRAM_PROXY_URL=socks5://user:password@host:port

@@ -4,8 +4,10 @@ import signal
 import threading
 import time
 
+from SMK_ADAPTERS.common.monitoring import configureMonitoring
 from SMK_ADAPTERS.telegram_admin_adapter.settings import loadConfigValues
 from SMK_ADAPTERS.vk_adapter.adapter import getStarted, runAdapter
+from SMK_ADAPTERS.vk_adapter.settings import loadSettings
 
 
 LOGGER = logging.getLogger(__name__)
@@ -23,6 +25,8 @@ def main() -> None:
     logging.getLogger("pika").setLevel(logging.WARNING)
     logging.getLogger("urllib3").setLevel(logging.WARNING)
     logging.getLogger("vk_api").setLevel(logging.WARNING)
+    settings = loadSettings()
+    configureMonitoring(settings.common.monitoring, f"vk-{settings.vk.adapter_role.lower()}-adapter")
 
     stopEvent = threading.Event()
 

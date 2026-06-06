@@ -14,6 +14,7 @@ from SMK_ADAPTERS.common.constants import (
 from SMK_ADAPTERS.common.http_client import SmcApiClient
 from SMK_ADAPTERS.common.macros import TriggerUser, buildVkTriggerUser, replaceUserMacros
 from SMK_ADAPTERS.common.models import IncomingMessage, QueueMessage
+from SMK_ADAPTERS.common.monitoring import emitMonitoringEvent
 from SMK_ADAPTERS.common.parsers import BackendResponseParser
 from SMK_ADAPTERS.common.rabbit import RabbitMqBus
 from SMK_ADAPTERS.vk_adapter.client import VkApiError, VkBotClient
@@ -111,6 +112,8 @@ def publishDistributionMessages(response, triggerUser: TriggerUser | None = None
     if response.distribution is None:
         return
 
+    publishedCount = 0
+    unknownRouteCount = 0
     for receiver in response.distribution.receivers:
         if shouldSkipDistributionReceiver(response, receiver):
             LOGGER.debug(
@@ -122,6 +125,7 @@ def publishDistributionMessages(response, triggerUser: TriggerUser | None = None
         queueNameForReceiver = queueByPlatformAndChannel.get((receiver.platform, receiver.channel))
         adapterNameForReceiver = ADAPTER_BY_PLATFORM_AND_CHANNEL.get((receiver.platform, receiver.channel))
         if queueNameForReceiver is None or adapterNameForReceiver is None:
+            unknownRouteCount += 1
             LOGGER.warning(
                 "Получатель рассылки пропущен: неизвестная связка platform=%s, channel=%s",
                 receiver.platform,
@@ -145,6 +149,21 @@ def publishDistributionMessages(response, triggerUser: TriggerUser | None = None
             },
         )
         publisherBus.publishJson(queueNameForReceiver, queueMessage.toDict())
+        publishedCount += 1
+
+    if publishedCount > 0:
+        emitMonitoringEvent(
+            "INFO",
+            f"Пользователь отправил рассылку: получателей={publishedCount}, файлов={len(response.distribution.files_ids)}",
+            triggerUser,
+        )
+
+    if unknownRouteCount > 0:
+        emitMonitoringEvent(
+            "WARN",
+            f"Рассылка частично пропущена: неизвестная связка platform+channel у получателей={unknownRouteCount}",
+            triggerUser,
+        )
 
 
 def shouldSkipDistributionReceiver(response, receiver) -> bool:
