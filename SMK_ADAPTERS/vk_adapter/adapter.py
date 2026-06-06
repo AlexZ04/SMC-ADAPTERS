@@ -23,7 +23,8 @@ from SMK_ADAPTERS.vk_adapter.settings import loadSettings
 
 
 LOGGER = logging.getLogger(__name__)
-VK_NON_RETRYABLE_ERROR_CODES = {901, 911}
+VK_PERMISSION_DENIED_ERROR_CODE = 901
+VK_NON_RETRYABLE_ERROR_CODES = {VK_PERMISSION_DENIED_ERROR_CODE, 911}
 
 adapterName: str = "vk_user"
 queueName: str = "smc_vk_user"
@@ -194,6 +195,10 @@ def handleQueueMessage(payload: dict):
     try:
         sendQueueMessageToVk(message)
     except VkApiError as exc:
+        if exc.error_code == VK_PERMISSION_DENIED_ERROR_CODE:
+            LOGGER.debug("VK запретил отправку сообщения пользователю: %s", exc)
+            return
+
         if exc.error_code in VK_NON_RETRYABLE_ERROR_CODES:
             LOGGER.error("VK отклонил сообщение без возможности повтора: %s", exc)
             return
