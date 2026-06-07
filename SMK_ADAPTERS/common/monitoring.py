@@ -2,6 +2,7 @@ import json
 import logging
 import queue
 import threading
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -15,6 +16,8 @@ from SMK_ADAPTERS.common.macros import TriggerUser
 LOGGER = logging.getLogger(__name__)
 TIME_FORMAT = "%d.%m.%Y %H:%M:%S"
 MAX_MESSAGE_LENGTH = 4000
+TECHNICAL_ALERT_COOLDOWN_SECONDS = 600
+APPLICATION_LOGGER_PREFIX = "SMK_ADAPTERS."
 IGNORED_LOG_FRAGMENTS = (
     "Telegram long poll",
     "Request timeout",
@@ -117,6 +120,10 @@ class MonitoringReporter:
 
 
 class MonitoringLogHandler(logging.Handler):
+    def __init__(self, level: int = logging.NOTSET) -> None:
+        super().__init__(level)
+        self.lastEventAt: dict[str, float] = {}
+
     def emit(self, record: logging.LogRecord) -> None:
         if record.name == __name__ or record.name.startswith(f"{__name__}."):
             return
@@ -124,11 +131,30 @@ class MonitoringLogHandler(logging.Handler):
         if record.levelno < logging.ERROR:
             return
 
-        message = self.format(record)
+        if not record.name.startswith(APPLICATION_LOGGER_PREFIX):
+            return
+
+        normalized = normalizeLogRecord(record)
+        if normalized is None:
+            return
+
+        level, message, dedupKey = normalized
+        if not self.shouldSend(dedupKey):
+            return
+
         if shouldIgnoreLogMessage(message):
             return
 
-        emitMonitoringEvent(record.levelname, message)
+        emitMonitoringEvent(level, message)
+
+    def shouldSend(self, key: str) -> bool:
+        now = time.monotonic()
+        lastSentAt = self.lastEventAt.get(key)
+        if lastSentAt is not None and now - lastSentAt < TECHNICAL_ALERT_COOLDOWN_SECONDS:
+            return False
+
+        self.lastEventAt[key] = now
+        return True
 
 
 def configureMonitoring(config: MonitoringConfig, channel: str) -> None:
@@ -156,6 +182,65 @@ def emitMonitoringEvent(
 
 def shouldIgnoreLogMessage(message: str) -> bool:
     return any(fragment in message for fragment in IGNORED_LOG_FRAGMENTS)
+
+
+def normalizeLogRecord(record: logging.LogRecord) -> tuple[str, str, str] | None:
+    if not record.name.startswith(APPLICATION_LOGGER_PREFIX):
+        return None
+
+    rawMessage = record.getMessage()
+    if shouldIgnoreLogMessage(rawMessage):
+        return None
+
+    if record.name == "SMK_ADAPTERS.common.rabbit":
+        return normalizeRabbitMqLog(rawMessage)
+
+    if record.name.endswith(".long_poll"):
+        return (
+            "WARN",
+            "Long poll адаптера перезапускается после ошибки. Если бот отвечает, действие не требуется.",
+            f"{record.name}:long-poll",
+        )
+
+    if record.exc_info:
+        excType = record.exc_info[0].__name__
+        excMessage = str(record.exc_info[1])
+        return (
+            record.levelname,
+            f"{rawMessage}. Причина: {excType}: {excMessage}",
+            f"{record.name}:{excType}:{rawMessage}",
+        )
+
+    return (record.levelname, rawMessage, f"{record.name}:{rawMessage}")
+
+
+def normalizeRabbitMqLog(message: str) -> tuple[str, str, str]:
+    if "подключ" in message:
+        return (
+            "WARN",
+            "RabbitMQ временно недоступен. Адаптер пытается переподключиться, сообщения останутся в очередях.",
+            "rabbitmq:connection",
+        )
+
+    if "опубликовать" in message:
+        return (
+            "WARN",
+            "Не удалось опубликовать сообщение в RabbitMQ. Адаптер восстановит соединение и повторит работу.",
+            "rabbitmq:publish",
+        )
+
+    if "обработать сообщение RabbitMQ" in message:
+        return (
+            "ERROR",
+            "Не удалось обработать сообщение из RabbitMQ. Сообщение возвращено в очередь для повторной обработки.",
+            "rabbitmq:consume",
+        )
+
+    return (
+        "WARN",
+        "RabbitMQ сообщил о техническом сбое. Адаптер продолжает работу и пытается восстановить соединение.",
+        "rabbitmq:generic",
+    )
 
 
 def trimMessage(message: str) -> str:

@@ -7,6 +7,7 @@ from SMK_ADAPTERS.common.constants import (
     ADAPTER_BY_PLATFORM_AND_ROLE,
     ADAPTER_BY_PLATFORM_AND_CHANNEL,
     ADMIN_CHANNEL,
+    BACKEND_UNAVAILABLE_MESSAGE,
     USER_ROLE,
     buildQueueByPlatformAndChannel,
     buildQueueByPlatformAndRole,
@@ -70,7 +71,7 @@ def getStarted():
 
 
 def handleIncomingMessage(message: IncomingMessage):
-    if apiClient is None or messageParser is None or publisherBus is None:
+    if apiClient is None or messageParser is None or publisherBus is None or vkClient is None:
         raise RuntimeError("Адаптер не был запущен через getStarted")
 
     LOGGER.debug(
@@ -82,10 +83,20 @@ def handleIncomingMessage(message: IncomingMessage):
 
     triggerUser = getTriggerUser(message)
 
-    if adapterRole in {"ADMIN", "SUPER_ADMIN"}:
-        response = apiClient.sendAdminMessage(message)
-    else:
-        response = apiClient.sendUserMessage(message)
+    try:
+        if adapterRole in {"ADMIN", "SUPER_ADMIN"}:
+            response = apiClient.sendAdminMessage(message)
+        else:
+            response = apiClient.sendUserMessage(message)
+    except Exception as exc:
+        LOGGER.warning(
+            "Не удалось получить ответ от smc.api для VK: sender_id=%s, external_message_id=%s, error=%s",
+            message.sender_id,
+            message.external_message_id,
+            exc,
+        )
+        sendBackendUnavailableMessageToVk(message.sender_id)
+        return
 
     publishDistributionMessages(response, triggerUser)
     queueMessage = messageParser.parseForAdminQueue(response, adapterName, triggerUser, resolveUserMacro)
@@ -94,6 +105,16 @@ def handleIncomingMessage(message: IncomingMessage):
         return
 
     publisherBus.publishJson(queueName, queueMessage.toDict())
+
+
+def sendBackendUnavailableMessageToVk(recipientId: str):
+    if vkClient is None:
+        return
+
+    try:
+        vkClient.sendMessage(chat_id=recipientId, text=BACKEND_UNAVAILABLE_MESSAGE)
+    except Exception:
+        LOGGER.warning("Не удалось отправить пользователю VK сообщение о недоступности backend", exc_info=True)
 
 
 def getTriggerUser(message: IncomingMessage) -> TriggerUser:

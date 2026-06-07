@@ -6,6 +6,7 @@ from SMK_ADAPTERS.common.config import loadSecretFile
 from SMK_ADAPTERS.common.constants import (
     ADAPTER_BY_PLATFORM_AND_CHANNEL,
     ADMIN_CHANNEL,
+    BACKEND_UNAVAILABLE_MESSAGE,
     REPLY_KEYBOARD_HELP_TEXT,
     USER_ROLE,
     buildQueueByPlatformAndChannel,
@@ -79,7 +80,7 @@ def getStarted():
 
 
 def handleIncomingMessage(message: IncomingMessage):
-    if apiClient is None or messageParser is None or publisherBus is None:
+    if apiClient is None or messageParser is None or publisherBus is None or telegramClient is None:
         raise RuntimeError("Адаптер не был запущен через getStarted")
 
     LOGGER.debug(
@@ -90,7 +91,18 @@ def handleIncomingMessage(message: IncomingMessage):
     )
 
     triggerUser = buildTelegramTriggerUser(message)
-    response = apiClient.sendAdminMessage(message)
+    try:
+        response = apiClient.sendAdminMessage(message)
+    except Exception as exc:
+        LOGGER.warning(
+            "Не удалось получить ответ от smc.api для Telegram: sender_id=%s, external_message_id=%s, error=%s",
+            message.sender_id,
+            message.external_message_id,
+            exc,
+        )
+        sendBackendUnavailableMessageToTelegram(message.sender_id)
+        return
+
     publishDistributionMessages(response, triggerUser)
     queueMessage = messageParser.parseForAdminQueue(
         response,
@@ -104,6 +116,16 @@ def handleIncomingMessage(message: IncomingMessage):
         return
 
     publisherBus.publishJson(adminQueueName, queueMessage.toDict())
+
+
+def sendBackendUnavailableMessageToTelegram(recipientId: str):
+    if telegramClient is None:
+        return
+
+    try:
+        telegramClient.sendMessage(chat_id=recipientId, text=BACKEND_UNAVAILABLE_MESSAGE)
+    except Exception:
+        LOGGER.warning("Не удалось отправить пользователю Telegram сообщение о недоступности backend", exc_info=True)
 
 
 def publishDistributionMessages(response, triggerUser: TriggerUser | None = None):
