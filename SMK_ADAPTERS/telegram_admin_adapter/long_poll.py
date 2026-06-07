@@ -8,6 +8,7 @@ from aiogram import Dispatcher
 from aiogram.exceptions import TelegramNetworkError
 from aiogram.types import CallbackQuery, Document, Message, PhotoSize
 
+from SMK_ADAPTERS.common.constants import UNSUPPORTED_INCOMING_MESSAGE_TEXT
 from SMK_ADAPTERS.common.models import IncomingMessage, MessageFile
 from SMK_ADAPTERS.telegram_admin_adapter.client import TelegramApiError, TelegramBotClient
 
@@ -121,7 +122,7 @@ class NewLongPoll:
             attachments.extend(await self.extractAttachments(message))
 
         if not text and not attachments:
-            return None
+            return self.unsupportedMessageToIncoming(firstMessage)
 
         return IncomingMessage(
             adapter=self.adapterName,
@@ -154,7 +155,7 @@ class NewLongPoll:
         attachments = await self.extractAttachments(message)
 
         if not text and not attachments:
-            return None
+            return self.unsupportedMessageToIncoming(message)
 
         return IncomingMessage(
             adapter=self.adapterName,
@@ -169,6 +170,24 @@ class NewLongPoll:
                     "chat": message.chat.model_dump(mode="json"),
                     "from": message.from_user.model_dump(mode="json") if message.from_user else None,
                 }
+            },
+        )
+
+    def unsupportedMessageToIncoming(self, message: Message) -> IncomingMessage:
+        return IncomingMessage(
+            adapter=self.adapterName,
+            channel="telegram",
+            sender_id=str(message.chat.id),
+            text=UNSUPPORTED_INCOMING_MESSAGE_TEXT,
+            external_message_id=str(message.message_id),
+            metadata={
+                "unsupportedFormat": True,
+                "telegram": {
+                    "messageId": message.message_id,
+                    "contentType": str(getattr(message, "content_type", "")),
+                    "chat": message.chat.model_dump(mode="json"),
+                    "from": message.from_user.model_dump(mode="json") if message.from_user else None,
+                },
             },
         )
 

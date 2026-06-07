@@ -5,6 +5,11 @@ TG_USER_QUEUE_NAME = "smc_tg_user"
 VK_USER_QUEUE_NAME = "smc_vk_user"
 DEFAULT_ADMIN_ENDPOINT = "/api/v1/admin"
 BACKEND_UNAVAILABLE_MESSAGE = "Произошла ошибка, попробуйте ещё раз чуть позже"
+UNSUPPORTED_INCOMING_MESSAGE_TEXT = "Пользователь отправил сообщение в неподдерживаемом формате"
+UNSUPPORTED_RESPONSE_MARKERS = (
+    "не понял",
+    "не могу понять",
+)
 REPLY_KEYBOARD_HELP_TEXT = (
     "Сделать выбор можно либо нажав на одну из кнопок выше, либо введите текст вручную.\n"
     "Для возвращения в главное меню нажмите \"К боту\""

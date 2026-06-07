@@ -8,6 +8,7 @@ from SMK_ADAPTERS.common.constants import (
     ADMIN_CHANNEL,
     BACKEND_UNAVAILABLE_MESSAGE,
     REPLY_KEYBOARD_HELP_TEXT,
+    UNSUPPORTED_RESPONSE_MARKERS,
     USER_ROLE,
     buildQueueByPlatformAndChannel,
     buildQueueByPlatformAndRole,
@@ -115,7 +116,26 @@ def handleIncomingMessage(message: IncomingMessage):
         LOGGER.info("Ответ smc.api не сформировал сообщение для очереди администратора")
         return
 
+    if shouldSuppressUnsupportedUserResponse(message, queueMessage):
+        LOGGER.debug(
+            "Ответ пользователю Telegram подавлен для неподдержанного формата: sender_id=%s, external_message_id=%s",
+            message.sender_id,
+            message.external_message_id,
+        )
+        return
+
     publisherBus.publishJson(adminQueueName, queueMessage.toDict())
+
+
+def shouldSuppressUnsupportedUserResponse(message: IncomingMessage, queueMessage: QueueMessage) -> bool:
+    if not message.metadata.get("unsupportedFormat"):
+        return False
+
+    if queueMessage.recipient_id != message.sender_id:
+        return False
+
+    text = queueMessage.text.lower()
+    return any(marker in text for marker in UNSUPPORTED_RESPONSE_MARKERS)
 
 
 def sendBackendUnavailableMessageToTelegram(recipientId: str):

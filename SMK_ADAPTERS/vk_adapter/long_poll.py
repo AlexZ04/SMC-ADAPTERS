@@ -6,6 +6,7 @@ from urllib.request import urlopen
 
 from vk_api.longpoll import VkEventType, VkLongPoll
 
+from SMK_ADAPTERS.common.constants import UNSUPPORTED_INCOMING_MESSAGE_TEXT
 from SMK_ADAPTERS.common.models import IncomingMessage, MessageFile
 from SMK_ADAPTERS.vk_adapter.client import VkBotClient
 
@@ -48,7 +49,7 @@ class NewLongPoll(VkLongPoll):
         text = event.text or ""
         attachments = self.extractAttachments(event)
         if not text and not attachments:
-            return None
+            return self.unsupportedEventToIncoming(event)
 
         return IncomingMessage(
             adapter=self.adapterName,
@@ -63,6 +64,23 @@ class NewLongPoll(VkLongPoll):
                     "peerId": getattr(event, "peer_id", None),
                     "attachments": getattr(event, "attachments", None),
                 }
+            },
+        )
+
+    def unsupportedEventToIncoming(self, event) -> IncomingMessage:
+        return IncomingMessage(
+            adapter=self.adapterName,
+            channel="vk",
+            sender_id=str(event.user_id),
+            text=UNSUPPORTED_INCOMING_MESSAGE_TEXT,
+            external_message_id=str(getattr(event, "message_id", "")) or None,
+            metadata={
+                "unsupportedFormat": True,
+                "vk": {
+                    "userId": event.user_id,
+                    "peerId": getattr(event, "peer_id", None),
+                    "attachments": getattr(event, "attachments", None),
+                },
             },
         )
 

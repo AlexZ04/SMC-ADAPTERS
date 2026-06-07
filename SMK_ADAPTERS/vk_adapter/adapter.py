@@ -8,6 +8,7 @@ from SMK_ADAPTERS.common.constants import (
     ADAPTER_BY_PLATFORM_AND_CHANNEL,
     ADMIN_CHANNEL,
     BACKEND_UNAVAILABLE_MESSAGE,
+    UNSUPPORTED_RESPONSE_MARKERS,
     USER_ROLE,
     buildQueueByPlatformAndChannel,
     buildQueueByPlatformAndRole,
@@ -104,7 +105,26 @@ def handleIncomingMessage(message: IncomingMessage):
         LOGGER.info("Ответ smc.api не сформировал сообщение для очереди VK")
         return
 
+    if shouldSuppressUnsupportedUserResponse(message, queueMessage):
+        LOGGER.debug(
+            "Ответ пользователю VK подавлен для неподдержанного формата: sender_id=%s, external_message_id=%s",
+            message.sender_id,
+            message.external_message_id,
+        )
+        return
+
     publisherBus.publishJson(queueName, queueMessage.toDict())
+
+
+def shouldSuppressUnsupportedUserResponse(message: IncomingMessage, queueMessage: QueueMessage) -> bool:
+    if not message.metadata.get("unsupportedFormat"):
+        return False
+
+    if queueMessage.recipient_id != message.sender_id:
+        return False
+
+    text = queueMessage.text.lower()
+    return any(marker in text for marker in UNSUPPORTED_RESPONSE_MARKERS)
 
 
 def sendBackendUnavailableMessageToVk(recipientId: str):
