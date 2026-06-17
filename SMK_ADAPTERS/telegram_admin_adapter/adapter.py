@@ -155,7 +155,6 @@ def publishDistributionMessages(response, triggerUser: TriggerUser | None = None
     if response.distribution is None:
         return
 
-    publishedCount = 0
     unknownRouteCount = 0
     for receiver in response.distribution.receivers:
         if shouldSkipDistributionReceiver(response, receiver):
@@ -203,14 +202,6 @@ def publishDistributionMessages(response, triggerUser: TriggerUser | None = None
             receiver.role,
         )
         publisherBus.publishJson(queueName, queueMessage.toDict())
-        publishedCount += 1
-
-    if publishedCount > 0:
-        emitMonitoringEvent(
-            "INFO",
-            f"Пользователь отправил рассылку: получателей={publishedCount}, файлов={len(response.distribution.files_ids)}",
-            triggerUser,
-        )
 
     if unknownRouteCount > 0:
         emitMonitoringEvent(
@@ -269,6 +260,10 @@ def handleQueueMessage(payload: dict):
     try:
         sendQueueMessageToTelegram(message)
     except TelegramApiError as exc:
+        if exc.status_code == 400 and "chat not found" in str(exc).lower():
+            LOGGER.debug("Telegram не нашёл чат получателя, сообщение пропущено: %s", exc)
+            return
+
         if exc.status_code == 400:
             LOGGER.error("Telegram отклонил сообщение без возможности повтора: %s", exc)
             return

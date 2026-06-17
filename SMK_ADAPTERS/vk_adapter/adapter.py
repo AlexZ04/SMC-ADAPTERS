@@ -155,7 +155,6 @@ def publishDistributionMessages(response, triggerUser: TriggerUser | None = None
     if response.distribution is None:
         return
 
-    publishedCount = 0
     unknownRouteCount = 0
     for receiver in response.distribution.receivers:
         if shouldSkipDistributionReceiver(response, receiver):
@@ -192,14 +191,6 @@ def publishDistributionMessages(response, triggerUser: TriggerUser | None = None
             },
         )
         publisherBus.publishJson(queueNameForReceiver, queueMessage.toDict())
-        publishedCount += 1
-
-    if publishedCount > 0:
-        emitMonitoringEvent(
-            "INFO",
-            f"Пользователь отправил рассылку: получателей={publishedCount}, файлов={len(response.distribution.files_ids)}",
-            triggerUser,
-        )
 
     if unknownRouteCount > 0:
         emitMonitoringEvent(

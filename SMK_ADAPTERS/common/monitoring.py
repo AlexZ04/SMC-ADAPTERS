@@ -214,7 +214,7 @@ def normalizeLogRecord(record: logging.LogRecord) -> tuple[str, str, str] | None
     return (record.levelname, rawMessage, f"{record.name}:{rawMessage}")
 
 
-def normalizeRabbitMqLog(message: str) -> tuple[str, str, str]:
+def normalizeRabbitMqLog(message: str) -> tuple[str, str, str] | None:
     if "подключ" in message:
         return (
             "WARN",
@@ -230,11 +230,7 @@ def normalizeRabbitMqLog(message: str) -> tuple[str, str, str]:
         )
 
     if "обработать сообщение RabbitMQ" in message:
-        return (
-            "ERROR",
-            "Не удалось обработать сообщение из RabbitMQ. Сообщение возвращено в очередь для повторной обработки.",
-            "rabbitmq:consume",
-        )
+        return None
 
     return (
         "WARN",
