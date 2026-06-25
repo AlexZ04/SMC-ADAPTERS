@@ -19,6 +19,8 @@ def main() -> None:
     log_level = getattr(logging, log_level_name.upper(), logging.INFO)
 
     configureJsonLogging(log_level)
+    logging.getLogger("aiogram").setLevel(logging.WARNING)
+    logging.getLogger("aiohttp").setLevel(logging.WARNING)
     logging.getLogger("pika").setLevel(logging.WARNING)
     configureMonitoring(loadSettings().common.monitoring, "telegram-admin-adapter")
 

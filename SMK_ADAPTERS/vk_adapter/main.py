@@ -22,6 +22,7 @@ def main() -> None:
     configureJsonLogging(logLevel)
     logging.getLogger("pika").setLevel(logging.WARNING)
     logging.getLogger("urllib3").setLevel(logging.WARNING)
+    logging.getLogger("requests").setLevel(logging.WARNING)
     logging.getLogger("vk_api").setLevel(logging.WARNING)
     settings = loadSettings()
     configureMonitoring(settings.common.monitoring, f"vk-{settings.vk.adapter_role.lower()}-adapter")
