@@ -14,6 +14,7 @@ from SMK_ADAPTERS.common.constants import (
     buildQueueByPlatformAndRole,
 )
 from SMK_ADAPTERS.common.http_client import SmcApiClient
+from SMK_ADAPTERS.common.logging_config import loggingContext
 from SMK_ADAPTERS.common.macros import TriggerUser, buildVkTriggerUser, replaceUserMacros
 from SMK_ADAPTERS.common.models import IncomingMessage, QueueMessage
 from SMK_ADAPTERS.common.monitoring import emitMonitoringEvent
@@ -72,6 +73,11 @@ def getStarted():
 
 
 def handleIncomingMessage(message: IncomingMessage):
+    with loggingContext(platform="VK", userId=message.sender_id, messageType=adapterRole):
+        handleIncomingMessageWithContext(message)
+
+
+def handleIncomingMessageWithContext(message: IncomingMessage):
     if apiClient is None or messageParser is None or publisherBus is None or vkClient is None:
         raise RuntimeError("Адаптер не был запущен через getStarted")
 
@@ -214,12 +220,20 @@ def shouldSkipDistributionReceiver(response, receiver) -> bool:
 
 
 def handleQueueMessage(payload: dict):
+    message = QueueMessage.fromDict(payload, default_adapter=adapterName)
+    with loggingContext(
+        platform=str(message.metadata.get("platform")) if message.metadata.get("platform") else "VK",
+        userId=message.recipient_id,
+        messageType=str(message.metadata.get("channel") or "queue"),
+    ):
+        handleQueueMessageWithContext(message)
+
+
+def handleQueueMessageWithContext(message: QueueMessage):
     if vkClient is None:
         raise RuntimeError("Адаптер не был запущен через getStarted")
 
-    LOGGER.debug("Получено сообщение из RabbitMQ: %s", payload)
-
-    message = QueueMessage.fromDict(payload, default_adapter=adapterName)
+    LOGGER.debug("Получено сообщение из RabbitMQ: %s", message.toDict())
     if message.adapter != adapterName:
         LOGGER.debug("Сообщение очереди пропущено: оно предназначено для адаптера %s", message.adapter)
         return

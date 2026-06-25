@@ -5,6 +5,7 @@ import time
 import os
 
 from SMK_ADAPTERS.common.monitoring import configureMonitoring
+from SMK_ADAPTERS.common.logging_config import configureJsonLogging
 from SMK_ADAPTERS.telegram_admin_adapter.adapter import getStarted, runAdapter
 from SMK_ADAPTERS.telegram_admin_adapter.settings import loadConfigValues, loadSettings
 
@@ -17,10 +18,7 @@ def main() -> None:
     log_level_name = os.getenv("LOG_LEVEL") or config_values.get("LOG_LEVEL") or "INFO"
     log_level = getattr(logging, log_level_name.upper(), logging.INFO)
 
-    logging.basicConfig(
-        level=log_level,
-        format="%(asctime)s %(levelname)s [%(threadName)s] %(name)s: %(message)s",
-    )
+    configureJsonLogging(log_level)
     logging.getLogger("pika").setLevel(logging.WARNING)
     configureMonitoring(loadSettings().common.monitoring, "telegram-admin-adapter")
 
