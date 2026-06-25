@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import sys
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -20,6 +21,7 @@ class JsonLogFormatter(logging.Formatter):
             "logger": record.name,
             "thread": record.threadName,
             "message": record.getMessage(),
+            "container.name": getContainerName(),
         }
 
         platform = getattr(record, "platform", None) or LOG_PLATFORM.get()
@@ -47,6 +49,10 @@ def configureJsonLogging(logLevel: int) -> None:
     rootLogger.handlers.clear()
     rootLogger.addHandler(handler)
     rootLogger.setLevel(logLevel)
+
+
+def getContainerName() -> str:
+    return os.getenv("CONTAINER_NAME") or os.getenv("HOSTNAME") or ""
 
 
 @contextmanager
