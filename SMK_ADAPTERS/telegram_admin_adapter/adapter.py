@@ -239,6 +239,13 @@ def getDistributionAdapterName(receiver: DistributionReceiver) -> str | None:
 
 
 def resolveUserMacro(platform: str, userId: str, triggerUser: TriggerUser | None = None) -> TriggerUser | None:
+    if platform == "VK":
+        return TriggerUser(
+            name=userId,
+            user_id=userId,
+            link=buildVkFallbackLink(userId),
+        )
+
     if platform != "TG":
         return None
 
@@ -250,6 +257,13 @@ def resolveUserMacro(platform: str, userId: str, triggerUser: TriggerUser | None
         user_id=userId,
         link=f"tg://user?id={userId}",
     )
+
+
+def buildVkFallbackLink(userId: str) -> str:
+    if userId.isdigit():
+        return f"https://vk.com/id{userId}"
+
+    return f"https://vk.com/{userId}"
 
 
 def handleQueueMessage(payload: dict):

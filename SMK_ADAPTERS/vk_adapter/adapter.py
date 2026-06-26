@@ -287,6 +287,13 @@ def sendQueueMessageToVk(message: QueueMessage):
 
 
 def resolveUserMacro(platform: str, userId: str) -> TriggerUser | None:
+    if platform == "TG":
+        return TriggerUser(
+            name=userId,
+            user_id=userId,
+            link=userId,
+        )
+
     if platform == "VK":
         if vkClient is None:
             return buildVkTriggerUser(userId)

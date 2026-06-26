@@ -45,7 +45,7 @@ def replaceExplicitUserMacro(match: re.Match[str], resolver: MacroResolver) -> s
     methodName = match.group(1)
     platform = match.group(2).upper()
     userId = match.group(3).strip()
-    user = resolver(platform, userId)
+    user = resolver(platform, userId) or buildFallbackExplicitUser(platform, userId)
     if user is None:
         return match.group(0)
 
@@ -57,6 +57,33 @@ def replaceExplicitUserMacro(match: re.Match[str], resolver: MacroResolver) -> s
         return user.link
 
     return match.group(0)
+
+
+def buildFallbackExplicitUser(platform: str, userId: str) -> TriggerUser:
+    return TriggerUser(
+        name=userId,
+        user_id=userId,
+        link=buildFallbackExplicitUserLink(platform, userId),
+    )
+
+
+def buildFallbackExplicitUserLink(platform: str, userId: str) -> str:
+    if platform == "VK":
+        if userId.isdigit():
+            return f"https://vk.com/id{userId}"
+        return f"https://vk.com/{userId}"
+
+    if platform == "TG":
+        if userId.isdigit():
+            return f"tg://user?id={userId}"
+        if isTelegramUsername(userId):
+            return f"https://t.me/{userId}"
+
+    return userId
+
+
+def isTelegramUsername(value: str) -> bool:
+    return re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{4,31}", value) is not None
 
 
 def buildTelegramTriggerUser(message: IncomingMessage) -> TriggerUser:
