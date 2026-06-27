@@ -26,7 +26,65 @@ class VkApiError(RuntimeError):
         self.error_code = error_code
 
 
-class VkBotClient:
+class KeyboardConfigurator:
+    def makeKeyboard(
+        self,
+        inline_elements: list[list[KeyboardElement]] | None = None,
+        reply_elements: list[list[KeyboardElement]] | None = None,
+    ) -> VkKeyboard | None:
+        if inline_elements:
+            return self.makeKeyboardFromRows(inline_elements, inline=True)
+
+        if reply_elements:
+            return self.makeKeyboardFromRows(reply_elements, inline=False)
+
+        return None
+
+    def makeKeyboardFromRows(self, rows: list[list[KeyboardElement]], inline: bool) -> VkKeyboard | None:
+        keyboard = VkKeyboard(inline=inline)
+        hasButtons = False
+
+        for rowIndex, row in enumerate(rows):
+            if rowIndex > 0 and hasButtons:
+                keyboard.add_line()
+
+            for element in row:
+                if not element.text:
+                    continue
+
+                self.addKeyboardButton(keyboard, element)
+                hasButtons = True
+
+        if not hasButtons:
+            return None
+
+        return keyboard
+
+    def addKeyboardButton(self, keyboard: VkKeyboard, element: KeyboardElement) -> None:
+        label = self.makeButtonLabel(element.text)
+        if element.link:
+            keyboard.add_openlink_button(label=label, link=element.link)
+            return
+
+        keyboard.add_button(label, color=self.getButtonColor(element))
+
+    def makeButtonLabel(self, text: str) -> str:
+        if len(text) <= VK_BUTTON_LABEL_MAX_LENGTH:
+            return text
+
+        return text[:VK_BUTTON_LABEL_MAX_LENGTH]
+
+    def getButtonColor(self, element: KeyboardElement) -> VkKeyboardColor:
+        style = VK_BUTTON_COLOR_TO_STYLE.get((element.color or "").strip().lower())
+        if style == "positive":
+            return VkKeyboardColor.POSITIVE
+        if style == "primary":
+            return VkKeyboardColor.PRIMARY
+
+        return VkKeyboardColor.SECONDARY
+
+
+class VkBotClient(KeyboardConfigurator):
     def __init__(self, token: str) -> None:
         self.authorize = VkApi(token=token)
         self.session = self.authorize.get_api()
@@ -170,62 +228,6 @@ class VkBotClient:
         finally:
             file.close()
 
-    def makeKeyboard(
-        self,
-        inline_elements: list[list[KeyboardElement]] | None = None,
-        reply_elements: list[list[KeyboardElement]] | None = None,
-    ) -> VkKeyboard | None:
-        if inline_elements:
-            return self.makeKeyboardFromRows(inline_elements, inline=True)
-
-        if reply_elements:
-            return self.makeKeyboardFromRows(reply_elements, inline=False)
-
-        return None
-
-    def makeKeyboardFromRows(self, rows: list[list[KeyboardElement]], inline: bool) -> VkKeyboard | None:
-        keyboard = VkKeyboard(inline=inline)
-        hasButtons = False
-
-        for rowIndex, row in enumerate(rows):
-            if rowIndex > 0 and hasButtons:
-                keyboard.add_line()
-
-            for element in row:
-                if not element.text:
-                    continue
-
-                self.addKeyboardButton(keyboard, element)
-                hasButtons = True
-
-        if not hasButtons:
-            return None
-
-        return keyboard
-
-    def addKeyboardButton(self, keyboard: VkKeyboard, element: KeyboardElement) -> None:
-        label = self.makeButtonLabel(element.text)
-        if element.link:
-            keyboard.add_openlink_button(label=label, link=element.link)
-            return
-
-        keyboard.add_button(label, color=self.getButtonColor(element))
-
-    def makeButtonLabel(self, text: str) -> str:
-        if len(text) <= VK_BUTTON_LABEL_MAX_LENGTH:
-            return text
-
-        return text[:VK_BUTTON_LABEL_MAX_LENGTH]
-
-    def getButtonColor(self, element: KeyboardElement) -> VkKeyboardColor:
-        style = VK_BUTTON_COLOR_TO_STYLE.get((element.color or "").strip().lower())
-        if style == "positive":
-            return VkKeyboardColor.POSITIVE
-        if style == "primary":
-            return VkKeyboardColor.PRIMARY
-
-        return VkKeyboardColor.SECONDARY
-
     def getUserProfile(self, user_id: str) -> dict[str, Any]:
         cachedProfile = self.getCachedUserProfile(user_id)
         if cachedProfile is not None:
@@ -273,9 +275,5 @@ class VkBotClient:
             raise VkApiError(f"Запрос к VK API завершился ошибкой: {exc}", error_code=errorCode) from exc
 
 
-class KeyboardConfigurator(VkBotClient):
-    pass
-
-
-class MessageService(KeyboardConfigurator):
+class MessageService(VkBotClient):
     pass

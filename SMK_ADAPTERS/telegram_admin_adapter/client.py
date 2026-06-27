@@ -34,7 +34,77 @@ class TelegramApiError(RuntimeError):
         self.status_code = status_code
 
 
-class TelegramBotClient:
+class KeyboardConfigurator:
+    def makeInlineMarkup(self, rows: list[list[KeyboardElement]]) -> InlineKeyboardMarkup | None:
+        keyboard = []
+
+        for row in rows:
+            buttons = [self.makeInlineButton(element) for element in row if element.text]
+            if buttons:
+                keyboard.append(buttons)
+
+        if not keyboard:
+            return None
+
+        return InlineKeyboardMarkup(**{TELEGRAM_FIELD_INLINE_KEYBOARD: keyboard})
+
+    def makeMarkup(
+        self,
+        inline_elements: list[list[KeyboardElement]] | None = None,
+        reply_elements: list[list[KeyboardElement]] | None = None,
+    ) -> InlineKeyboardMarkup | ReplyKeyboardMarkup | None:
+        inline_markup = self.makeInlineMarkup(inline_elements or [])
+        reply_markup = self.makeReplyMarkup(reply_elements or [])
+        return inline_markup or reply_markup
+
+    def makeInlineButton(self, element: KeyboardElement) -> InlineKeyboardButton:
+        button = self.makeButtonData(element)
+
+        if element.link:
+            button[TELEGRAM_FIELD_URL] = element.link
+        else:
+            button[TELEGRAM_FIELD_CALLBACK_DATA] = element.text
+
+        return InlineKeyboardButton(**button)
+
+    def makeReplyMarkup(self, rows: list[list[KeyboardElement]]) -> ReplyKeyboardMarkup | None:
+        keyboard = [
+            [self.makeReplyButton(element) for element in row if element.text]
+            for row in rows
+        ]
+        keyboard = [row for row in keyboard if row]
+
+        if not keyboard:
+            return None
+
+        return ReplyKeyboardMarkup(
+            **{
+                TELEGRAM_FIELD_KEYBOARD: keyboard,
+                TELEGRAM_FIELD_RESIZE_KEYBOARD: True,
+                TELEGRAM_FIELD_ONE_TIME_KEYBOARD: False,
+            }
+        )
+
+    def makeReplyButton(self, element: KeyboardElement) -> KeyboardButton:
+        return KeyboardButton(**self.makeButtonData(element))
+
+    def makeButtonData(self, element: KeyboardElement) -> dict[str, Any]:
+        button = {TELEGRAM_FIELD_TEXT: element.text}
+        style = self.makeButtonStyle(element)
+        if style is not None:
+            button[TELEGRAM_FIELD_STYLE] = style
+
+        return button
+
+    def makeButtonStyle(self, element: KeyboardElement) -> str | None:
+        value = (element.color or "").strip().lower()
+        if not value:
+            return None
+
+        return TELEGRAM_BUTTON_COLOR_TO_STYLE.get(value)
+
+
+class TelegramBotClient(KeyboardConfigurator):
     def __init__(
         self,
         token: str,
@@ -179,82 +249,10 @@ class TelegramBotClient:
         except TelegramAPIError as exc:
             raise TelegramApiError(f"Запрос к Telegram API завершился ошибкой: {exc}") from exc
 
-    def makeInlineMarkup(self, rows: list[list[KeyboardElement]]) -> InlineKeyboardMarkup | None:
-        keyboard = []
-
-        for row in rows:
-            buttons = [self.makeInlineButton(element) for element in row if element.text]
-            if buttons:
-                keyboard.append(buttons)
-
-        if not keyboard:
-            return None
-
-        return InlineKeyboardMarkup(**{TELEGRAM_FIELD_INLINE_KEYBOARD: keyboard})
-
-    def makeMarkup(
-        self,
-        inline_elements: list[list[KeyboardElement]] | None = None,
-        reply_elements: list[list[KeyboardElement]] | None = None,
-    ) -> InlineKeyboardMarkup | ReplyKeyboardMarkup | None:
-        inline_markup = self.makeInlineMarkup(inline_elements or [])
-        reply_markup = self.makeReplyMarkup(reply_elements or [])
-        return inline_markup or reply_markup
-
-    def makeInlineButton(self, element: KeyboardElement) -> InlineKeyboardButton:
-        button = self.makeButtonData(element)
-
-        if element.link:
-            button[TELEGRAM_FIELD_URL] = element.link
-        else:
-            button[TELEGRAM_FIELD_CALLBACK_DATA] = element.text
-
-        return InlineKeyboardButton(**button)
-
-    def makeReplyMarkup(self, rows: list[list[KeyboardElement]]) -> ReplyKeyboardMarkup | None:
-        keyboard = [
-            [self.makeReplyButton(element) for element in row if element.text]
-            for row in rows
-        ]
-        keyboard = [row for row in keyboard if row]
-
-        if not keyboard:
-            return None
-
-        return ReplyKeyboardMarkup(
-            **{
-                TELEGRAM_FIELD_KEYBOARD: keyboard,
-                TELEGRAM_FIELD_RESIZE_KEYBOARD: True,
-                TELEGRAM_FIELD_ONE_TIME_KEYBOARD: False,
-            }
-        )
-
-    def makeReplyButton(self, element: KeyboardElement) -> KeyboardButton:
-        return KeyboardButton(**self.makeButtonData(element))
-
-    def makeButtonData(self, element: KeyboardElement) -> dict[str, Any]:
-        button = {TELEGRAM_FIELD_TEXT: element.text}
-        style = self.makeButtonStyle(element)
-        if style is not None:
-            button[TELEGRAM_FIELD_STYLE] = style
-
-        return button
-
-    def makeButtonStyle(self, element: KeyboardElement) -> str | None:
-        value = (element.color or "").strip().lower()
-        if not value:
-            return None
-
-        return TELEGRAM_BUTTON_COLOR_TO_STYLE.get(value)
-
     def isPhotoFile(self, fileName: str) -> bool:
         lowered = fileName.lower()
         return lowered.endswith(".jpg") or lowered.endswith(".jpeg") or lowered.endswith(".png") or lowered.endswith(".webp")
 
 
-class KeyboardConfigurator(TelegramBotClient):
-    pass
-
-
-class MessageService(KeyboardConfigurator):
+class MessageService(TelegramBotClient):
     pass
