@@ -250,3 +250,11 @@ class TelegramBotClient:
     def isPhotoFile(self, fileName: str) -> bool:
         lowered = fileName.lower()
         return lowered.endswith(".jpg") or lowered.endswith(".jpeg") or lowered.endswith(".png") or lowered.endswith(".webp")
+
+
+class KeyboardConfigurator(TelegramBotClient):
+    pass
+
+
+class MessageService(KeyboardConfigurator):
+    pass

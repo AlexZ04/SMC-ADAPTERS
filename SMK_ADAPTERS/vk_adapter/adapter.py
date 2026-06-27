@@ -18,9 +18,9 @@ from SMK_ADAPTERS.common.logging_config import loggingContext
 from SMK_ADAPTERS.common.macros import TriggerUser, buildVkTriggerUser, replaceUserMacros
 from SMK_ADAPTERS.common.models import IncomingMessage, QueueMessage
 from SMK_ADAPTERS.common.monitoring import emitMonitoringEvent
-from SMK_ADAPTERS.common.parsers import BackendResponseParser
-from SMK_ADAPTERS.common.rabbit import RabbitMqBus
-from SMK_ADAPTERS.vk_adapter.client import VkApiError, VkBotClient
+from SMK_ADAPTERS.common.parsers import DataPerformer, ParserService
+from SMK_ADAPTERS.common.rabbit import MessageProvider
+from SMK_ADAPTERS.vk_adapter.client import MessageService, VkApiError
 from SMK_ADAPTERS.vk_adapter.long_poll import NewLongPoll
 from SMK_ADAPTERS.vk_adapter.settings import loadSettings
 
@@ -34,10 +34,11 @@ queueName: str = "smc_vk_user"
 adapterRole: str = "USER"
 
 apiClient: SmcApiClient | None = None
-messageParser: BackendResponseParser | None = None
-vkClient: VkBotClient | None = None
-publisherBus: RabbitMqBus | None = None
-consumerBus: RabbitMqBus | None = None
+dataPerformer: DataPerformer | None = None
+parserService: ParserService | None = None
+vkClient: MessageService | None = None
+messageProvider: MessageProvider | None = None
+consumerMessageProvider: MessageProvider | None = None
 longPoll: NewLongPoll | None = None
 queueByPlatformAndRole: dict[tuple[str, str], str] = {}
 queueByPlatformAndChannel: dict[tuple[str, str], str] = {}
@@ -48,10 +49,11 @@ def getStarted():
     global queueName
     global adapterRole
     global apiClient
-    global messageParser
+    global dataPerformer
+    global parserService
     global vkClient
-    global publisherBus
-    global consumerBus
+    global messageProvider
+    global consumerMessageProvider
     global longPoll
     global queueByPlatformAndRole
     global queueByPlatformAndChannel
@@ -64,11 +66,12 @@ def getStarted():
     queueByPlatformAndChannel = buildQueueByPlatformAndChannel(settings.common.deployment.queue_prefix)
     queueName = queueByPlatformAndRole[("VK", adapterRole)]
 
-    vkClient = VkBotClient(token=token)
+    vkClient = MessageService(token=token)
     apiClient = SmcApiClient(settings.common.api)
-    messageParser = BackendResponseParser()
-    publisherBus = RabbitMqBus(settings.common.rabbit)
-    consumerBus = RabbitMqBus(settings.common.rabbit)
+    dataPerformer = DataPerformer()
+    parserService = ParserService()
+    messageProvider = MessageProvider(settings.common.rabbit)
+    consumerMessageProvider = MessageProvider(settings.common.rabbit)
     longPoll = NewLongPoll(client=vkClient, adapter_name=adapterName)
 
 
@@ -78,7 +81,7 @@ def handleIncomingMessage(message: IncomingMessage):
 
 
 def handleIncomingMessageWithContext(message: IncomingMessage):
-    if apiClient is None or messageParser is None or publisherBus is None or vkClient is None:
+    if apiClient is None or dataPerformer is None or messageProvider is None or vkClient is None:
         raise RuntimeError("Адаптер не был запущен через getStarted")
 
     LOGGER.debug(
@@ -106,7 +109,7 @@ def handleIncomingMessageWithContext(message: IncomingMessage):
         return
 
     publishDistributionMessages(response, triggerUser)
-    queueMessage = messageParser.parseForAdminQueue(response, adapterName, triggerUser, resolveUserMacro)
+    queueMessage = dataPerformer.processMessageTriggers(response, adapterName, triggerUser, resolveUserMacro)
     if queueMessage is None:
         LOGGER.info("Ответ smc.api не сформировал сообщение для очереди VK")
         return
@@ -119,7 +122,7 @@ def handleIncomingMessageWithContext(message: IncomingMessage):
         )
         return
 
-    publisherBus.publishJson(queueName, queueMessage.toDict())
+    messageProvider.sendToQueue(queueName, queueMessage.toDict())
 
 
 def shouldSuppressUnsupportedUserResponse(message: IncomingMessage, queueMessage: QueueMessage) -> bool:
@@ -155,7 +158,7 @@ def getTriggerUser(message: IncomingMessage) -> TriggerUser:
 
 
 def publishDistributionMessages(response, triggerUser: TriggerUser | None = None):
-    if publisherBus is None:
+    if messageProvider is None:
         raise RuntimeError("Адаптер не был запущен через getStarted")
 
     if response.distribution is None:
@@ -196,7 +199,7 @@ def publishDistributionMessages(response, triggerUser: TriggerUser | None = None
                 "channel": receiver.channel,
             },
         )
-        publisherBus.publishJson(queueNameForReceiver, queueMessage.toDict())
+        messageProvider.sendToQueue(queueNameForReceiver, queueMessage.toDict())
 
     if unknownRouteCount > 0:
         emitMonitoringEvent(
@@ -220,7 +223,10 @@ def shouldSkipDistributionReceiver(response, receiver) -> bool:
 
 
 def handleQueueMessage(payload: dict):
-    message = QueueMessage.fromDict(payload, default_adapter=adapterName)
+    if parserService is None:
+        raise RuntimeError("Адаптер не был запущен через getStarted")
+
+    message = parserService.parseMessage(payload, default_adapter=adapterName)
     with loggingContext(
         platform=str(message.metadata.get("platform")) if message.metadata.get("platform") else "VK",
         userId=message.recipient_id,
@@ -336,13 +342,13 @@ def detectImageExtension(content: bytes) -> str:
 
 
 def startRabbitListening():
-    if consumerBus is None:
+    if consumerMessageProvider is None:
         raise RuntimeError("Адаптер не был запущен через getStarted")
 
     while True:
         try:
-            consumerBus.reconnectForever()
-            consumerBus.consumeJson(queueName, handleQueueMessage)
+            consumerMessageProvider.reconnectForever()
+            consumerMessageProvider.consumeJson(queueName, handleQueueMessage)
         except Exception:
             LOGGER.exception("Цикл чтения из RabbitMQ завершился ошибкой: queue=%s", queueName)
             time.sleep(5)

@@ -271,3 +271,11 @@ class VkBotClient:
         except Exception as exc:
             errorCode = self.extractErrorCode(exc)
             raise VkApiError(f"Запрос к VK API завершился ошибкой: {exc}", error_code=errorCode) from exc
+
+
+class KeyboardConfigurator(VkBotClient):
+    pass
+
+
+class MessageService(KeyboardConfigurator):
+    pass

@@ -18,10 +18,10 @@ from SMK_ADAPTERS.common.logging_config import loggingContext
 from SMK_ADAPTERS.common.macros import TriggerUser, buildTelegramTriggerUser, replaceUserMacros
 from SMK_ADAPTERS.common.models import DistributionReceiver, IncomingMessage, PreviewMessage, QueueMessage
 from SMK_ADAPTERS.common.monitoring import emitMonitoringEvent
-from SMK_ADAPTERS.common.parsers import BackendResponseParser
-from SMK_ADAPTERS.common.rabbit import RabbitMqBus
+from SMK_ADAPTERS.common.parsers import DataPerformer, ParserService
+from SMK_ADAPTERS.common.rabbit import MessageProvider
 from SMK_ADAPTERS.telegram_admin_adapter.async_runtime import TelegramAsyncRuntime
-from SMK_ADAPTERS.telegram_admin_adapter.client import TelegramApiError, TelegramBotClient
+from SMK_ADAPTERS.telegram_admin_adapter.client import MessageService, TelegramApiError
 from SMK_ADAPTERS.telegram_admin_adapter.long_poll import NewLongPoll
 from SMK_ADAPTERS.telegram_admin_adapter.settings import loadSettings
 
@@ -30,11 +30,12 @@ LOGGER = logging.getLogger(__name__)
 ADAPTER_NAME = "telegram_admin"
 
 apiClient: SmcApiClient | None = None
-messageParser: BackendResponseParser | None = None
-telegramClient: TelegramBotClient | None = None
+dataPerformer: DataPerformer | None = None
+parserService: ParserService | None = None
+telegramClient: MessageService | None = None
 telegramRuntime: TelegramAsyncRuntime | None = None
-publisherBus: RabbitMqBus | None = None
-consumerBus: RabbitMqBus | None = None
+messageProvider: MessageProvider | None = None
+consumerMessageProvider: MessageProvider | None = None
 longPoll: NewLongPoll | None = None
 adminQueueName: str = "smc_tg_admin_panel"
 queueByPlatformAndRole: dict[tuple[str, str], str] = {}
@@ -43,11 +44,12 @@ queueByPlatformAndChannel: dict[tuple[str, str], str] = {}
 
 def getStarted():
     global apiClient
-    global messageParser
+    global dataPerformer
+    global parserService
     global telegramClient
     global telegramRuntime
-    global publisherBus
-    global consumerBus
+    global messageProvider
+    global consumerMessageProvider
     global longPoll
     global adminQueueName
     global queueByPlatformAndRole
@@ -61,17 +63,18 @@ def getStarted():
 
     telegramRuntime = TelegramAsyncRuntime()
     telegramRuntime.start()
-    telegramClient = TelegramBotClient(
+    telegramClient = MessageService(
         token=token,
         runtime=telegramRuntime,
         timeout_seconds=settings.common.api.timeout_seconds,
         proxy_url=settings.telegram.proxy_url,
     )
     apiClient = SmcApiClient(settings.common.api)
-    messageParser = BackendResponseParser()
+    dataPerformer = DataPerformer()
+    parserService = ParserService()
 
-    publisherBus = RabbitMqBus(settings.common.rabbit)
-    consumerBus = RabbitMqBus(settings.common.rabbit)
+    messageProvider = MessageProvider(settings.common.rabbit)
+    consumerMessageProvider = MessageProvider(settings.common.rabbit)
 
     longPoll = NewLongPoll(
         client=telegramClient,
@@ -87,7 +90,7 @@ def handleIncomingMessage(message: IncomingMessage):
 
 
 def handleIncomingMessageWithContext(message: IncomingMessage):
-    if apiClient is None or messageParser is None or publisherBus is None or telegramClient is None:
+    if apiClient is None or dataPerformer is None or messageProvider is None or telegramClient is None:
         raise RuntimeError("Адаптер не был запущен через getStarted")
 
     LOGGER.debug(
@@ -111,7 +114,7 @@ def handleIncomingMessageWithContext(message: IncomingMessage):
         return
 
     publishDistributionMessages(response, triggerUser)
-    queueMessage = messageParser.parseForAdminQueue(
+    queueMessage = dataPerformer.processMessageTriggers(
         response,
         ADAPTER_NAME,
         triggerUser,
@@ -130,7 +133,7 @@ def handleIncomingMessageWithContext(message: IncomingMessage):
         )
         return
 
-    publisherBus.publishJson(adminQueueName, queueMessage.toDict())
+    messageProvider.sendToQueue(adminQueueName, queueMessage.toDict())
 
 
 def shouldSuppressUnsupportedUserResponse(message: IncomingMessage, queueMessage: QueueMessage) -> bool:
@@ -155,7 +158,7 @@ def sendBackendUnavailableMessageToTelegram(recipientId: str):
 
 
 def publishDistributionMessages(response, triggerUser: TriggerUser | None = None):
-    if publisherBus is None:
+    if messageProvider is None:
         raise RuntimeError("Адаптер не был запущен через getStarted")
 
     if response.distribution is None:
@@ -207,7 +210,7 @@ def publishDistributionMessages(response, triggerUser: TriggerUser | None = None
             receiver.platform,
             receiver.role,
         )
-        publisherBus.publishJson(queueName, queueMessage.toDict())
+        messageProvider.sendToQueue(queueName, queueMessage.toDict())
 
     if unknownRouteCount > 0:
         emitMonitoringEvent(
@@ -267,7 +270,10 @@ def buildVkFallbackLink(userId: str) -> str:
 
 
 def handleQueueMessage(payload: dict):
-    message = QueueMessage.fromDict(payload, default_adapter=ADAPTER_NAME)
+    if parserService is None:
+        raise RuntimeError("Адаптер не был запущен через getStarted")
+
+    message = parserService.parseMessage(payload, default_adapter=ADAPTER_NAME)
     with loggingContext(
         platform=str(message.metadata.get("platform")) if message.metadata.get("platform") else "TG",
         userId=message.recipient_id,
@@ -424,13 +430,13 @@ def detectImageExtension(content: bytes) -> str:
 
 
 def startRabbitListening():
-    if consumerBus is None:
+    if consumerMessageProvider is None:
         raise RuntimeError("Адаптер не был запущен через getStarted")
 
     while True:
         try:
-            consumerBus.reconnectForever()
-            consumerBus.consumeJson(adminQueueName, handleQueueMessage)
+            consumerMessageProvider.reconnectForever()
+            consumerMessageProvider.consumeJson(adminQueueName, handleQueueMessage)
         except Exception:
             LOGGER.exception("Цикл чтения из RabbitMQ завершился ошибкой")
             time.sleep(5)

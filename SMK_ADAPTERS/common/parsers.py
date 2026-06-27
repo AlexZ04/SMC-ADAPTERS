@@ -2,7 +2,7 @@ from SMK_ADAPTERS.common.macros import MacroResolver, TriggerUser, replaceUserMa
 from SMK_ADAPTERS.common.models import BackendResponse, PreviewMessage, QueueMessage
 
 
-class BackendResponseParser:
+class DataPerformer:
     def parseForAdminQueue(
         self,
         response: BackendResponse,
@@ -37,3 +37,20 @@ class BackendResponseParser:
         macro_resolver: MacroResolver | None = None,
     ) -> str:
         return replaceUserMacros(text, trigger_user, macro_resolver)
+
+    def processMessageTriggers(
+        self,
+        response: BackendResponse,
+        adapter_name: str,
+        trigger_user: TriggerUser | None = None,
+        macro_resolver: MacroResolver | None = None,
+    ) -> QueueMessage | None:
+        return self.parseForAdminQueue(response, adapter_name, trigger_user, macro_resolver)
+
+
+BackendResponseParser = DataPerformer
+
+
+class ParserService:
+    def parseMessage(self, payload: dict, default_adapter: str) -> QueueMessage:
+        return QueueMessage.fromDict(payload, default_adapter=default_adapter)

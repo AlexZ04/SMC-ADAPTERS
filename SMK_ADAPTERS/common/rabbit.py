@@ -10,7 +10,7 @@ from SMK_ADAPTERS.common.config import RabbitConfig
 LOGGER = logging.getLogger(__name__)
 
 
-class RabbitMqBus:
+class MessageProvider:
     def __init__(self, config: RabbitConfig) -> None:
         self._config = config
         self._pika: Any | None = None
@@ -73,6 +73,9 @@ class RabbitMqBus:
         channel.basic_consume(queue=queue_name, on_message_callback=callback)
         channel.start_consuming()
 
+    def sendToQueue(self, queue_name: str, payload: dict[str, Any]) -> None:
+        self.publishJson(queue_name, payload)
+
     def reconnectForever(self) -> None:
         pika = self.loadPika()
         while True:
@@ -122,3 +125,7 @@ class RabbitMqBus:
 
         self._pika = pika
         return pika
+
+
+class RabbitMqBus(MessageProvider):
+    pass
